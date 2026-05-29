@@ -1,6 +1,6 @@
 import type { AnalysisResult } from '../App'
 
-interface Props { result: AnalysisResult }
+interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean }
 
 function formatArea(m2: number): string {
   return m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`
@@ -13,7 +13,7 @@ const card: React.CSSProperties = {
   backdropFilter: 'blur(10px)',
 }
 
-export default function ResultsDisplay({ result }: Props) {
+export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
   const { info, originalImage, clippedImage, tifFiles } = result
 
   return (
@@ -21,11 +21,34 @@ export default function ResultsDisplay({ result }: Props) {
 
       {/* ── Info card ── */}
       <div style={{ ...card, padding: '28px 32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
-          <svg style={{ width: 18, height: 18, color: 'var(--leaf)', fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-          </svg>
-          <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Katastriüksuse info</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <svg style={{ width: 18, height: 18, color: 'var(--leaf)', fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+            </svg>
+            <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Katastriüksuse info</h2>
+          </div>
+          <button
+            onClick={onSave}
+            disabled={isSaved}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: isSaved ? 'default' : 'pointer',
+              background: isSaved ? 'rgba(139,195,74,.08)' : 'rgba(139,195,74,.15)',
+              border: `1px solid ${isSaved ? 'rgba(139,195,74,.2)' : 'rgba(139,195,74,.4)'}`,
+              color: isSaved ? 'var(--mist-dim)' : 'var(--leaf)',
+              transition: 'background .15s',
+            }}
+            onMouseEnter={e => { if (!isSaved) e.currentTarget.style.background = 'rgba(139,195,74,.25)' }}
+            onMouseLeave={e => { if (!isSaved) e.currentTarget.style.background = 'rgba(139,195,74,.15)' }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              {isSaved
+                ? <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
+                : <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2zm0 15-5-2.18L7 18V5h10v13z" />}
+            </svg>
+            {isSaved ? 'Salvestatud' : 'Salvesta kinnistu'}
+          </button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}>

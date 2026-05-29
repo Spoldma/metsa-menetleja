@@ -1,6 +1,9 @@
 import { useState, useRef } from 'react'
 import ProgressSteps from './components/ProgressSteps'
 import ResultsDisplay from './components/ResultsDisplay'
+import MinuKinnistud from './pages/MinuKinnistud'
+
+type Page = 'home' | 'kinnistud'
 
 export type Phase = 'idle' | 'loading' | 'done' | 'error'
 export interface ProgressStep { step: string; message: string }
@@ -14,6 +17,21 @@ export interface AnalysisResult {
   originalImage: string
   clippedImage: string
   tifFiles: string[]
+}
+export interface SavedParcel {
+  id: string
+  savedAt: string
+  info: CadastreInfo
+  clippedImage: string
+}
+
+const STORAGE_KEY = 'metsa-menetleja-saved'
+
+function loadSaved(): SavedParcel[] {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
+}
+function storeSaved(parcels: SavedParcel[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(parcels))
 }
 
 // ─── Forest canopy SVG background (design's AerialParcel, wide/canopy mode) ──
@@ -134,16 +152,42 @@ function formatArea(m2: number) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [page, setPage] = useState<Page>('home')
   const [phase, setPhase] = useState<Phase>('idle')
   const [steps, setSteps] = useState<ProgressStep[]>([])
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState('')
   const [inputVal, setInputVal] = useState('')
+  const [savedParcels, setSavedParcels] = useState<SavedParcel[]>(loadSaved)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleSave = () => {
+    if (!result) return
+    const already = savedParcels.some(p => p.info.code === result.info.code)
+    if (already) return
+    const entry: SavedParcel = {
+      id: crypto.randomUUID(),
+      savedAt: new Date().toISOString(),
+      info: result.info,
+      clippedImage: result.clippedImage,
+    }
+    const updated = [entry, ...savedParcels]
+    setSavedParcels(updated)
+    storeSaved(updated)
+  }
+
+  const handleDelete = (id: string) => {
+    const updated = savedParcels.filter(p => p.id !== id)
+    setSavedParcels(updated)
+    storeSaved(updated)
+  }
+
+  const isAlreadySaved = result ? savedParcels.some(p => p.info.code === result.info.code) : false
 
   const handleAnalyze = (code: string) => {
     const trimmed = code.trim()
     if (!trimmed) return
+    setPage('home')
     setPhase('loading')
     setSteps([])
     setResult(null)
@@ -177,6 +221,17 @@ export default function App() {
 
   const isLoading = phase === 'loading'
   const isDone    = phase === 'done' && !!result
+
+  if (page === 'kinnistud') {
+    return (
+      <MinuKinnistud
+        parcels={savedParcels}
+        onDelete={handleDelete}
+        onAnalyze={code => { setInputVal(code); handleAnalyze(code) }}
+        onBack={() => setPage('home')}
+      />
+    )
+  }
 
   return (
     <div style={{ background: 'var(--ink)', minHeight: '100vh' }}>
@@ -244,6 +299,23 @@ export default function App() {
                 onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
                 onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>{l}</a>
             ))}
+            <button
+              onClick={() => setPage('kinnistud')}
+              style={{ fontSize: 14, fontWeight: 500, color: savedParcels.length > 0 ? 'var(--leaf)' : 'var(--mist-dim)',
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0, transition: 'color .15s',
+                display: 'flex', alignItems: 'center', gap: 6 }}
+              onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
+              onMouseLeave={e => (e.currentTarget.style.color= savedParcels.length > 0 ? 'var(--leaf)' : 'var(--mist-dim)')}
+            >
+              Minu kinnistud
+              {savedParcels.length > 0 && (
+                <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace",
+                  background: 'rgba(139,195,74,.2)', border: '1px solid rgba(139,195,74,.35)',
+                  borderRadius: 999, padding: '1px 7px', color: 'var(--leaf)' }}>
+                  {savedParcels.length}
+                </span>
+              )}
+            </button>
           </div>
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase',
             padding: '7px 14px', borderRadius: 999, border: '1px solid rgba(233,244,225,.22)', color: 'var(--mist-dim)' }}>
@@ -433,7 +505,7 @@ export default function App() {
       {/* ═══════════════════════════ RESULTS ═══════════════════════════════════ */}
       {isDone && (
         <div style={{ background: 'var(--forest-d)', padding: '48px 56px' }} className="animate-fadeIn">
-          <ResultsDisplay result={result} />
+          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} />
         </div>
       )}
 
