@@ -288,9 +288,13 @@ export class CadastreService {
           const outOriginY = wf.originY + pxTop * wf.pixelSizeY; // pixelSizeY < 0
 
           // Write as standard little-endian TIFF (sharp output) — readable by all tools
+          const tifOutPath = path.join(OUTPUT_DIR, tifFilename);
           await sharp(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
             .tiff({ compression: 'lzw' })
-            .toFile(path.join(OUTPUT_DIR, tifFilename));
+            .toFile(tifOutPath);
+
+          // Patch GeoTIFF coordinate tags into the already-written file without touching pixel data
+          await this.patchGeoTags(tifOutPath, wf.pixelSizeX, wf.pixelSizeY, outOriginX, outOriginY);
 
           // World file (.tfw) — pixel size and geo origin for GIS software
           await fs.promises.writeFile(
@@ -499,6 +503,95 @@ export class CadastreService {
       originX: lines[4],
       originY: lines[5],
     };
+  }
+
+  /**
+   * Patch GeoTIFF coordinate tags into a sharp-written little-endian TIFF without modifying
+   * pixel data or format. Appends ModelPixelScaleTag, ModelTiepointTag and GeoKeyDirectoryTag
+   * (EPSG:3301) then rewrites the IFD pointer to a new combined IFD at the end of the file.
+   */
+  private async patchGeoTags(
+    filePath: string,
+    pixelSizeX: number,
+    pixelSizeY: number, // negative
+    originX: number,
+    originY: number,
+  ): Promise<void> {
+    const src = await fs.promises.readFile(filePath);
+
+    // Validate little-endian TIFF magic
+    if (src[0] !== 0x49 || src[1] !== 0x49 || src.readUInt16LE(2) !== 42) {
+      throw new Error('patchGeoTags: expected little-endian TIFF (II/42)');
+    }
+
+    // Read existing IFD entries
+    const ifdOff = src.readUInt32LE(4);
+    const nOrig = src.readUInt16LE(ifdOff);
+    const origEntries: Buffer[] = [];
+    for (let i = 0; i < nOrig; i++) {
+      origEntries.push(Buffer.from(src.subarray(ifdOff + 2 + i * 12, ifdOff + 2 + (i + 1) * 12)));
+    }
+
+    // Remove any pre-existing geo tags so we don't duplicate them
+    const GEO_TAGS = new Set([33550, 33922, 34735, 34736, 34737]);
+    const keepEntries = origEntries.filter(e => !GEO_TAGS.has(e.readUInt16LE(0)));
+
+    // Build geo-data block appended at current EOF
+    const geoBlock = Buffer.alloc(8 * 3 + 8 * 6 + 2 * 16); // 104 bytes
+    let p = 0;
+    const base = src.length;
+
+    const mpsOff = base + p;
+    geoBlock.writeDoubleLE(pixelSizeX,           p); p += 8;
+    geoBlock.writeDoubleLE(Math.abs(pixelSizeY), p); p += 8;
+    geoBlock.writeDoubleLE(0,                    p); p += 8;
+
+    const mtpOff = base + p;
+    geoBlock.writeDoubleLE(0,       p); p += 8; // raster i
+    geoBlock.writeDoubleLE(0,       p); p += 8; // raster j
+    geoBlock.writeDoubleLE(0,       p); p += 8; // raster k
+    geoBlock.writeDoubleLE(originX, p); p += 8; // geo X (top-left pixel centre)
+    geoBlock.writeDoubleLE(originY, p); p += 8; // geo Y
+    geoBlock.writeDoubleLE(0,       p); p += 8; // geo Z
+
+    const gkdOff = base + p;
+    // GeoKeyDirectory: version 1.1.0, 3 keys: GTModelType=Projected, GTRasterType=PixelIsArea, ProjectedCSType=3301
+    [1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 3301].forEach(v => {
+      geoBlock.writeUInt16LE(v, p); p += 2;
+    });
+
+    const mkEntry = (tag: number, type: number, count: number, off: number): Buffer => {
+      const e = Buffer.alloc(12);
+      e.writeUInt16LE(tag,   0);
+      e.writeUInt16LE(type,  2);
+      e.writeUInt32LE(count, 4);
+      e.writeUInt32LE(off,   8);
+      return e;
+    };
+
+    // Combine old entries + new geo entries, sorted by tag number
+    const allEntries = [
+      ...keepEntries,
+      mkEntry(33550, 12, 3,  mpsOff),  // ModelPixelScaleTag  (3 doubles)
+      mkEntry(33922, 12, 6,  mtpOff),  // ModelTiepointTag    (6 doubles)
+      mkEntry(34735,  3, 16, gkdOff),  // GeoKeyDirectoryTag  (16 shorts)
+    ].sort((a, b) => a.readUInt16LE(0) - b.readUInt16LE(0));
+
+    // New IFD sits after the geo data block
+    const newIfdOff = src.length + geoBlock.length;
+    const newIfd = Buffer.alloc(2 + allEntries.length * 12 + 4);
+    newIfd.writeUInt16LE(allEntries.length, 0);
+    allEntries.forEach((e, i) => e.copy(newIfd, 2 + i * 12));
+    newIfd.writeUInt32LE(0, 2 + allEntries.length * 12); // no next IFD
+
+    // Updated 8-byte header: byte order + magic unchanged, IFD pointer updated
+    const newHdr = Buffer.from(src.subarray(0, 8));
+    newHdr.writeUInt32LE(newIfdOff, 4);
+
+    await fs.promises.writeFile(
+      filePath,
+      Buffer.concat([newHdr, src.subarray(8), geoBlock, newIfd]),
+    );
   }
 
 }

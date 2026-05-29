@@ -30,4 +30,5 @@ export declare class CadastreService {
     private downloadAndExtractTif;
     private findFile;
     private parseWorldFile;
+    private patchGeoTags;
 }

@@ -220,9 +220,11 @@ let CadastreService = class CadastreService {
                         : data;
                     const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
                     const outOriginY = wf.originY + pxTop * wf.pixelSizeY;
+                    const tifOutPath = path.join(OUTPUT_DIR, tifFilename);
                     await (0, sharp_1.default)(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
                         .tiff({ compression: 'lzw' })
-                        .toFile(path.join(OUTPUT_DIR, tifFilename));
+                        .toFile(tifOutPath);
+                    await this.patchGeoTags(tifOutPath, wf.pixelSizeX, wf.pixelSizeY, outOriginX, outOriginY);
                     await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')), [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'));
                     const prjWkt = 'PROJCS["Estonian Coordinate System of 1997",' +
                         'GEOGCS["GCS_Estonian_1997",DATUM["D_Estonian_1997",' +
@@ -394,6 +396,70 @@ let CadastreService = class CadastreService {
             originX: lines[4],
             originY: lines[5],
         };
+    }
+    async patchGeoTags(filePath, pixelSizeX, pixelSizeY, originX, originY) {
+        const src = await fs.promises.readFile(filePath);
+        if (src[0] !== 0x49 || src[1] !== 0x49 || src.readUInt16LE(2) !== 42) {
+            throw new Error('patchGeoTags: expected little-endian TIFF (II/42)');
+        }
+        const ifdOff = src.readUInt32LE(4);
+        const nOrig = src.readUInt16LE(ifdOff);
+        const origEntries = [];
+        for (let i = 0; i < nOrig; i++) {
+            origEntries.push(Buffer.from(src.subarray(ifdOff + 2 + i * 12, ifdOff + 2 + (i + 1) * 12)));
+        }
+        const GEO_TAGS = new Set([33550, 33922, 34735, 34736, 34737]);
+        const keepEntries = origEntries.filter(e => !GEO_TAGS.has(e.readUInt16LE(0)));
+        const geoBlock = Buffer.alloc(8 * 3 + 8 * 6 + 2 * 16);
+        let p = 0;
+        const base = src.length;
+        const mpsOff = base + p;
+        geoBlock.writeDoubleLE(pixelSizeX, p);
+        p += 8;
+        geoBlock.writeDoubleLE(Math.abs(pixelSizeY), p);
+        p += 8;
+        geoBlock.writeDoubleLE(0, p);
+        p += 8;
+        const mtpOff = base + p;
+        geoBlock.writeDoubleLE(0, p);
+        p += 8;
+        geoBlock.writeDoubleLE(0, p);
+        p += 8;
+        geoBlock.writeDoubleLE(0, p);
+        p += 8;
+        geoBlock.writeDoubleLE(originX, p);
+        p += 8;
+        geoBlock.writeDoubleLE(originY, p);
+        p += 8;
+        geoBlock.writeDoubleLE(0, p);
+        p += 8;
+        const gkdOff = base + p;
+        [1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 3301].forEach(v => {
+            geoBlock.writeUInt16LE(v, p);
+            p += 2;
+        });
+        const mkEntry = (tag, type, count, off) => {
+            const e = Buffer.alloc(12);
+            e.writeUInt16LE(tag, 0);
+            e.writeUInt16LE(type, 2);
+            e.writeUInt32LE(count, 4);
+            e.writeUInt32LE(off, 8);
+            return e;
+        };
+        const allEntries = [
+            ...keepEntries,
+            mkEntry(33550, 12, 3, mpsOff),
+            mkEntry(33922, 12, 6, mtpOff),
+            mkEntry(34735, 3, 16, gkdOff),
+        ].sort((a, b) => a.readUInt16LE(0) - b.readUInt16LE(0));
+        const newIfdOff = src.length + geoBlock.length;
+        const newIfd = Buffer.alloc(2 + allEntries.length * 12 + 4);
+        newIfd.writeUInt16LE(allEntries.length, 0);
+        allEntries.forEach((e, i) => e.copy(newIfd, 2 + i * 12));
+        newIfd.writeUInt32LE(0, 2 + allEntries.length * 12);
+        const newHdr = Buffer.from(src.subarray(0, 8));
+        newHdr.writeUInt32LE(newIfdOff, 4);
+        await fs.promises.writeFile(filePath, Buffer.concat([newHdr, src.subarray(8), geoBlock, newIfd]));
     }
 };
 exports.CadastreService = CadastreService;
