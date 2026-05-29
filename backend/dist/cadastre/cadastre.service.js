@@ -158,12 +158,20 @@ let CadastreService = class CadastreService {
                         continue;
                     }
                     const wf = this.parseWorldFile(worldFilePath);
-                    const usable = await this.isTifUsable(tifPath, wf, bbox);
+                    let usable;
+                    try {
+                        usable = await this.isTifUsable(tifPath, wf, bbox);
+                    }
+                    catch (err) {
+                        const reason = err instanceof Error ? err.message : 'tundmatu viga';
+                        emit(subject, 'tif_warning', `${zipLabel}: TIF kontrollimine ebaõnnestus (${reason})${attempt + 1 < zipUrls.length ? ', proovin vanemat versiooni...' : ''}`);
+                        continue;
+                    }
                     if (!usable) {
                         emit(subject, 'tif_warning', `${zipLabel}: TIF sisaldab peamiselt musti piksleid${attempt + 1 < zipUrls.length ? ', proovin vanemat versiooni...' : ''}`);
                         continue;
                     }
-                    const meta = await (0, sharp_1.default)(tifPath).metadata();
+                    const meta = await (0, sharp_1.default)(tifPath, { limitInputPixels: false }).metadata();
                     const tifW = meta.width;
                     const tifH = meta.height;
                     const pxLeft = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
@@ -178,8 +186,39 @@ let CadastreService = class CadastreService {
                     }
                     const suffix = kaardilehtIds.length > 1 ? `_${i + 1}of${kaardilehtIds.length}` : '';
                     const tifFilename = `${safeCode}_${ts}${suffix}.tif`;
-                    await (0, sharp_1.default)(tifPath)
+                    const toPixelInCrop = (c) => [
+                        Math.round((c[0] - wf.originX) / wf.pixelSizeX - pxLeft),
+                        Math.round((wf.originY - c[1]) / Math.abs(wf.pixelSizeY) - pxTop),
+                    ];
+                    const points = ring
+                        .map(toPixelInCrop)
+                        .map(([px, py]) => `${px},${py}`)
+                        .join(' ');
+                    const svgMask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${cropW}" height="${cropH}">` +
+                        `<rect x="0" y="0" width="${cropW}" height="${cropH}" fill="black"/>` +
+                        `<polygon points="${points}" fill="white"/>` +
+                        `</svg>`);
+                    const cropBuf = await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
                         .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+                        .png()
+                        .toBuffer();
+                    const { data, info } = await (0, sharp_1.default)(cropBuf)
+                        .composite([{ input: svgMask, blend: 'multiply' }])
+                        .raw()
+                        .toBuffer({ resolveWithObject: true });
+                    const ch = info.channels;
+                    const rgbData = ch === 4
+                        ? (() => {
+                            const b = Buffer.alloc(info.width * info.height * 3);
+                            for (let p = 0; p < info.width * info.height; p++) {
+                                b[p * 3] = data[p * 4];
+                                b[p * 3 + 1] = data[p * 4 + 1];
+                                b[p * 3 + 2] = data[p * 4 + 2];
+                            }
+                            return b;
+                        })()
+                        : data;
+                    await (0, sharp_1.default)(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
                         .tiff({ compression: 'lzw' })
                         .toFile(path.join(OUTPUT_DIR, tifFilename));
                     const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
@@ -269,31 +308,25 @@ let CadastreService = class CadastreService {
         return zipLinks;
     }
     async isTifUsable(tifPath, wf, bbox) {
-        try {
-            const meta = await (0, sharp_1.default)(tifPath).metadata();
-            const tifW = meta.width ?? 0;
-            const tifH = meta.height ?? 0;
-            if (!tifW || !tifH)
-                return false;
-            const pxLeft = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
-            const pxTop = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
-            const pxRight = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
-            const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
-            const cropW = pxRight - pxLeft;
-            const cropH = pxBottom - pxTop;
-            if (cropW <= 0 || cropH <= 0)
-                return false;
-            const stats = await (0, sharp_1.default)(tifPath)
-                .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-                .stats();
-            const depthBits = { uchar: 8, ushort: 16, uint: 32, float: 32 };
-            const bits = depthBits[meta.depth ?? 'uchar'] ?? 8;
-            const maxVal = Math.pow(2, bits) - 1;
-            return stats.channels.some((ch) => ch.mean > maxVal * 0.02);
-        }
-        catch {
+        const meta = await (0, sharp_1.default)(tifPath, { limitInputPixels: false }).metadata();
+        const tifW = meta.width ?? 0;
+        const tifH = meta.height ?? 0;
+        if (!tifW || !tifH)
             return false;
-        }
+        const pxLeft = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
+        const pxTop = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
+        const pxRight = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
+        const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
+        const cropW = pxRight - pxLeft;
+        const cropH = pxBottom - pxTop;
+        if (cropW <= 0 || cropH <= 0)
+            return false;
+        const cropBuf = await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
+            .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+            .png()
+            .toBuffer();
+        const stats = await (0, sharp_1.default)(cropBuf).stats();
+        return stats.channels.some((ch) => ch.mean > 5);
     }
     async downloadAndExtractTif(zipUrl, tempDir, zipSavePath) {
         const res = await axios_1.default.get(zipUrl, {

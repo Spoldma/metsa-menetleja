@@ -194,7 +194,18 @@ export class CadastreService {
           const wf = this.parseWorldFile(worldFilePath);
 
           // Check that the bbox region has actual data (not mostly black)
-          const usable = await this.isTifUsable(tifPath, wf, bbox);
+          let usable: boolean;
+          try {
+            usable = await this.isTifUsable(tifPath, wf, bbox);
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : 'tundmatu viga';
+            emit(
+              subject,
+              'tif_warning',
+              `${zipLabel}: TIF kontrollimine ebaõnnestus (${reason})${attempt + 1 < zipUrls.length ? ', proovin vanemat versiooni...' : ''}`,
+            );
+            continue;
+          }
           if (!usable) {
             emit(
               subject,
@@ -205,7 +216,7 @@ export class CadastreService {
           }
 
           // Extract bbox region directly
-          const meta = await sharp(tifPath).metadata();
+          const meta = await sharp(tifPath, { limitInputPixels: false }).metadata();
           const tifW = meta.width!;
           const tifH = meta.height!;
 
@@ -228,8 +239,51 @@ export class CadastreService {
           const suffix = kaardilehtIds.length > 1 ? `_${i + 1}of${kaardilehtIds.length}` : '';
           const tifFilename = `${safeCode}_${ts}${suffix}.tif`;
 
-          await sharp(tifPath)
+          // Convert cadaster ring to pixel coordinates within the crop
+          const toPixelInCrop = (c: number[]): [number, number] => [
+            Math.round((c[0] - wf.originX) / wf.pixelSizeX - pxLeft),
+            Math.round((wf.originY - c[1]) / Math.abs(wf.pixelSizeY) - pxTop),
+          ];
+          const points = ring
+            .map(toPixelInCrop)
+            .map(([px, py]) => `${px},${py}`)
+            .join(' ');
+          // Black background + white polygon: multiply blend zeros out pixels outside the ring
+          const svgMask = Buffer.from(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${cropW}" height="${cropH}">` +
+            `<rect x="0" y="0" width="${cropW}" height="${cropH}" fill="black"/>` +
+            `<polygon points="${points}" fill="white"/>` +
+            `</svg>`,
+          );
+
+          // Step 1: extract bbox crop to buffer (limitInputPixels needed for large TIFs)
+          const cropBuf = await sharp(tifPath, { limitInputPixels: false })
             .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+            .png()
+            .toBuffer();
+
+          // Step 2: multiply mask onto crop (inside=original, outside=black)
+          // Composite always produces 4 channels — strip alpha via raw to get clean 3-ch TIF
+          const { data, info } = await sharp(cropBuf)
+            .composite([{ input: svgMask, blend: 'multiply' }])
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+          const ch = info.channels as number;
+          const rgbData =
+            ch === 4
+              ? (() => {
+                  const b = Buffer.alloc(info.width * info.height * 3);
+                  for (let p = 0; p < info.width * info.height; p++) {
+                    b[p * 3]     = data[p * 4];
+                    b[p * 3 + 1] = data[p * 4 + 1];
+                    b[p * 3 + 2] = data[p * 4 + 2];
+                  }
+                  return b;
+                })()
+              : data;
+
+          await sharp(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
             .tiff({ compression: 'lzw' })
             .toFile(path.join(OUTPUT_DIR, tifFilename));
 
@@ -334,32 +388,29 @@ export class CadastreService {
   }
 
   private async isTifUsable(tifPath: string, wf: WorldFile, bbox: BBox): Promise<boolean> {
-    try {
-      const meta = await sharp(tifPath).metadata();
-      const tifW = meta.width ?? 0;
-      const tifH = meta.height ?? 0;
-      if (!tifW || !tifH) return false;
+    const meta = await sharp(tifPath, { limitInputPixels: false }).metadata();
+    const tifW = meta.width ?? 0;
+    const tifH = meta.height ?? 0;
+    if (!tifW || !tifH) return false;
 
-      const pxLeft   = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
-      const pxTop    = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
-      const pxRight  = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
-      const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
-      const cropW = pxRight - pxLeft;
-      const cropH = pxBottom - pxTop;
-      if (cropW <= 0 || cropH <= 0) return false;
+    const pxLeft   = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
+    const pxTop    = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
+    const pxRight  = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
+    const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
+    const cropW = pxRight - pxLeft;
+    const cropH = pxBottom - pxTop;
+    if (cropW <= 0 || cropH <= 0) return false;
 
-      const stats = await sharp(tifPath)
-        .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-        .stats();
+    // sharp .stats() ignores chained .extract() and reports whole-image statistics.
+    // Extract to a buffer first, then create a fresh instance to get correct crop stats.
+    const cropBuf = await sharp(tifPath, { limitInputPixels: false })
+      .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+      .png()
+      .toBuffer();
 
-      // Usable if at least one channel has a mean above 2% of the bit-depth maximum
-      const depthBits: Record<string, number> = { uchar: 8, ushort: 16, uint: 32, float: 32 };
-      const bits = depthBits[meta.depth ?? 'uchar'] ?? 8;
-      const maxVal = Math.pow(2, bits) - 1;
-      return stats.channels.some((ch) => ch.mean > maxVal * 0.02);
-    } catch {
-      return false;
-    }
+    const stats = await sharp(cropBuf).stats();
+    // PNG is always 8-bit; usable if any channel mean exceeds 2% of 255 ≈ 5
+    return stats.channels.some((ch) => ch.mean > 5);
   }
 
   private async downloadAndExtractTif(
