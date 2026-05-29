@@ -14,7 +14,7 @@ function formatCoord(v: number): string {
 }
 
 export default function ResultsDisplay({ result }: Props) {
-  const { info, originalImage, clippedImage } = result
+  const { info, originalImage, clippedImage, tifFiles } = result
 
   return (
     <div className="space-y-8 animate-fadeIn">
@@ -61,6 +61,34 @@ export default function ResultsDisplay({ result }: Props) {
           bg="checkerboard"
         />
       </div>
+
+      {/* TIF downloads */}
+      {tifFiles?.length > 0 && (
+        <div className="rounded-2xl border border-forest-light bg-forest/60 backdrop-blur p-6 shadow-xl">
+          <h3 className="text-mist font-semibold mb-4 flex items-center gap-2">
+            <svg className="w-4 h-4 text-leaf" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zm-8 2V5h2v6h1.17L12 13.17 9.83 11H11zm-6 7h14v2H5v-2z" />
+            </svg>
+            TIF failid
+          </h3>
+          <ul className="space-y-2">
+            {tifFiles.map((f) => (
+              <li key={f}>
+                <a
+                  href={`http://localhost:3001/cadastre/tif/${f}`}
+                  download={f}
+                  className="inline-flex items-center gap-2 text-sm text-leaf hover:text-mist transition-colors font-mono"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z" />
+                  </svg>
+                  {f}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

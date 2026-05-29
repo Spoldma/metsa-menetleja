@@ -19,8 +19,15 @@ export interface AnalysisResult {
     info: CadastreInfo;
     originalImage: string;
     clippedImage: string;
+    tifFiles: string[];
 }
 export declare class CadastreService {
     analyze(code: string): Observable<SseEvent>;
     private run;
+    private findKaardilehtIds;
+    private getZipUrls;
+    private isTifUsable;
+    private downloadAndExtractTif;
+    private findFile;
+    private parseWorldFile;
 }

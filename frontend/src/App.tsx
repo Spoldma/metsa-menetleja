@@ -22,6 +22,7 @@ export interface AnalysisResult {
   info: CadastreInfo
   originalImage: string
   clippedImage: string
+  tifFiles: string[]
 }
 
 export default function App() {
@@ -42,7 +43,13 @@ export default function App() {
 
     es.onmessage = (e: MessageEvent) => {
       const data = JSON.parse(e.data) as ProgressStep & { payload?: AnalysisResult }
-      setSteps((prev) => [...prev, { step: data.step, message: data.message }])
+      setSteps((prev) => {
+        const last = prev[prev.length - 1]
+        if (last?.step === data.step && data.step === 'tif_download') {
+          return [...prev.slice(0, -1), { step: data.step, message: data.message }]
+        }
+        return [...prev, { step: data.step, message: data.message }]
+      })
 
       if (data.step === 'complete' && data.payload) {
         setResult(data.payload)

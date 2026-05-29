@@ -3,7 +3,10 @@ import type { Phase, ProgressStep } from '../App'
 const STEP_ICONS: Record<string, string> = {
   fetching: '🗺️',
   bbox: '📐',
-  downloading: '🛰️',
+  kaardileht: '📋',
+  tif_download: '⬇️',
+  tif_warning: '⚠️',
+  merging: '🔗',
   clipping: '✂️',
   complete: '✅',
   error: '❌',
