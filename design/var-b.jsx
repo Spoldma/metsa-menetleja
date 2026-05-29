@@ -60,6 +60,7 @@ function VariationB() {
           <div className="eyebrow-row">
             <span className="line"></span>
             <span className="kicker" style={{ color: 'var(--leaf-soft)' }}>Eesti metsakaart · tunnuse järgi</span>
+            <span className="line"></span>
           </div>
           <h1 className="serif" style={{ fontSize: 66, lineHeight: 1.03, letterSpacing: '-0.02em', marginTop: 20, color: 'var(--mist)', textShadow: '0 2px 30px rgba(0,0,0,.5)' }}>
             Sinu mets,<br /><span style={{ fontStyle: 'italic', color: 'var(--leaf-soft)' }}>kaardilt lahti lõigatud.</span>
