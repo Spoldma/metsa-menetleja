@@ -294,28 +294,18 @@ export default function App() {
             <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--mist)' }}>Metsa Menetleja</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            {['Kuidas töötab', 'Andmed', 'Metsaregister'].map(l => (
-              <a key={l} href="#" style={{ fontSize: 14, fontWeight: 500, color: 'var(--mist-dim)', textDecoration: 'none', transition: 'color .15s' }}
-                onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
-                onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>{l}</a>
-            ))}
-            <button
-              onClick={() => setPage('kinnistud')}
-              style={{ fontSize: 14, fontWeight: 500, color: savedParcels.length > 0 ? 'var(--leaf)' : 'var(--mist-dim)',
-                background: 'none', border: 'none', cursor: 'pointer', padding: 0, transition: 'color .15s',
-                display: 'flex', alignItems: 'center', gap: 6 }}
+            <a href="#how-it-works"
+              style={{ fontSize: 14, fontWeight: 500, color: 'var(--mist-dim)', textDecoration: 'none', transition: 'color .15s' }}
               onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
-              onMouseLeave={e => (e.currentTarget.style.color= savedParcels.length > 0 ? 'var(--leaf)' : 'var(--mist-dim)')}
-            >
-              Minu kinnistud
-              {savedParcels.length > 0 && (
-                <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace",
-                  background: 'rgba(139,195,74,.2)', border: '1px solid rgba(139,195,74,.35)',
-                  borderRadius: 999, padding: '1px 7px', color: 'var(--leaf)' }}>
-                  {savedParcels.length}
-                </span>
-              )}
-            </button>
+              onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>Kuidas töötab</a>
+            <a href="#"
+              style={{ fontSize: 14, fontWeight: 500, color: 'var(--mist-dim)', textDecoration: 'none', transition: 'color .15s' }}
+              onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
+              onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>Andmed</a>
+            <a href="https://register.metsad.ee/" target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 14, fontWeight: 500, color: 'var(--mist-dim)', textDecoration: 'none', transition: 'color .15s' }}
+              onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
+              onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>Metsaregister</a>
           </div>
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase',
             padding: '7px 14px', borderRadius: 999, border: '1px solid rgba(233,244,225,.22)', color: 'var(--mist-dim)' }}>
@@ -366,6 +356,7 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
             <div style={{ height: 1, width: 40, background: 'rgba(139,195,74,.5)' }} />
             <span className="kicker" style={{ color: 'var(--leaf-soft)' }}>Eesti metsakaart · tunnuse järgi</span>
+            <div style={{ height: 1, width: 40, background: 'rgba(139,195,74,.5)' }} />
           </div>
 
           <h1 className="font-display" style={{
@@ -373,18 +364,16 @@ export default function App() {
             color: 'var(--mist)', margin: 0,
             textShadow: '0 2px 30px rgba(0,0,0,.5)',
           }}>
-            Sinu mets,<br />
-            <span style={{ fontStyle: 'italic', color: 'var(--leaf-soft)' }}>kaardilt lahti lõigatud.</span>
+            Kas sa üldse tead,<br />
+            <span style={{ fontStyle: 'italic', color: 'var(--leaf-soft)' }}>mis sinu metsas toimub?</span>
           </h1>
 
-          <p style={{
+          <p className="font-mono" style={{
             marginTop: 20, fontSize: 17, lineHeight: 1.58,
             color: 'var(--mist)', maxWidth: 460,
             textShadow: '0 1px 16px rgba(0,0,0,.6)',
           }}>
-            Sisesta katastriüksuse tunnus — tõmbame viimase aerofoto, tuvastame puud,
-            klassifitseerime liigid ja ennustame metsa hinna.
-            Ristkontroll metsaregistriga.
+            uusim ortofoto · puude tuvastus ja klassifitseerimine · hinna ennustus · ristkontroll metsaregistriga
           </p>
 
           <p className="font-mono" style={{ marginTop: 6, fontSize: 12, letterSpacing: '.04em', color: 'rgba(197,216,189,.6)', marginBottom: 24 }}>
@@ -426,8 +415,8 @@ export default function App() {
         </div>
       )}
 
-      {/* ═══════════════════════════ HOW IT WORKS ══════════════════════════════ */}
-      <div style={{ background: 'var(--forest-d)', padding: '60px 56px 0' }}>
+      {/* ═══════════════════════════ HOW IT WORKS (hidden when done) ══════════ */}
+      {!isDone && <div id="how-it-works" style={{ background: 'var(--forest-d)', padding: '60px 56px 0' }}>
         {/* section head */}
         <div style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
@@ -500,7 +489,7 @@ export default function App() {
             </svg>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* ═══════════════════════════ RESULTS ═══════════════════════════════════ */}
       {isDone && (

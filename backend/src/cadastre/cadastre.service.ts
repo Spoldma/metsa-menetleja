@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { load as cheerioLoad } from 'cheerio';
 import * as unzipper from 'unzipper';
+import { writeArrayBuffer } from 'geotiff';
 
 export interface SseEvent {
   data: string;
@@ -283,12 +284,26 @@ export class CadastreService {
                 })()
               : data;
 
-          await sharp(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
-            .tiff({ compression: 'lzw' })
-            .toFile(path.join(OUTPUT_DIR, tifFilename));
-
+          // Geo origin of the top-left pixel of the crop
           const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
-          const outOriginY = wf.originY + pxTop * wf.pixelSizeY;
+          const outOriginY = wf.originY + pxTop * wf.pixelSizeY; // pixelSizeY < 0
+
+          // Write a proper GeoTIFF with embedded ModelPixelScale, ModelTiepoint and EPSG:3301
+          const geoTiffBuf = writeArrayBuffer(rgbData, {
+            height: info.height,
+            width: info.width,
+            SamplesPerPixel: 3,
+            PhotometricInterpretation: 2, // RGB
+            Compression: 5,               // LZW
+            ModelPixelScale: [wf.pixelSizeX, Math.abs(wf.pixelSizeY), 0],
+            ModelTiepoint: [0, 0, 0, outOriginX, outOriginY, 0],
+            GTModelTypeGeoKey:     1,    // Projected CRS
+            GTRasterTypeGeoKey:    1,    // PixelIsArea
+            ProjectedCSTypeGeoKey: 3301, // EPSG:3301 L-EST97
+          });
+          await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename), Buffer.from(geoTiffBuf));
+
+          // Keep a companion world file as fallback for older GIS software
           await fs.promises.writeFile(
             path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')),
             [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'),
