@@ -52,7 +52,6 @@ const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 const cheerio_1 = require("cheerio");
 const unzipper = __importStar(require("unzipper"));
-const geotiff_1 = require("geotiff");
 const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
 const WMS_BASE = 'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
@@ -221,20 +220,23 @@ let CadastreService = class CadastreService {
                         : data;
                     const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
                     const outOriginY = wf.originY + pxTop * wf.pixelSizeY;
-                    const geoTiffBuf = (0, geotiff_1.writeArrayBuffer)(rgbData, {
-                        height: info.height,
-                        width: info.width,
-                        SamplesPerPixel: 3,
-                        PhotometricInterpretation: 2,
-                        Compression: 5,
-                        ModelPixelScale: [wf.pixelSizeX, Math.abs(wf.pixelSizeY), 0],
-                        ModelTiepoint: [0, 0, 0, outOriginX, outOriginY, 0],
-                        GTModelTypeGeoKey: 1,
-                        GTRasterTypeGeoKey: 1,
-                        ProjectedCSTypeGeoKey: 3301,
-                    });
-                    await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename), Buffer.from(geoTiffBuf));
+                    await (0, sharp_1.default)(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
+                        .tiff({ compression: 'lzw' })
+                        .toFile(path.join(OUTPUT_DIR, tifFilename));
                     await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')), [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'));
+                    const prjWkt = 'PROJCS["Estonian Coordinate System of 1997",' +
+                        'GEOGCS["GCS_Estonian_1997",DATUM["D_Estonian_1997",' +
+                        'SPHEROID["GRS_1980",6378137.0,298.257222101]],' +
+                        'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],' +
+                        'PROJECTION["Lambert_Conformal_Conic"],' +
+                        'PARAMETER["False_Easting",500000.0],' +
+                        'PARAMETER["False_Northing",6375000.0],' +
+                        'PARAMETER["Central_Meridian",24.0],' +
+                        'PARAMETER["Standard_Parallel_1",59.33333333333334],' +
+                        'PARAMETER["Standard_Parallel_2",58.0],' +
+                        'PARAMETER["Latitude_Of_Origin",57.51755393055556],' +
+                        'UNIT["Meter",1.0]]';
+                    await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.prj')), prjWkt);
                     tifFilenames.push(tifFilename);
                     sheetDone = true;
                     break;

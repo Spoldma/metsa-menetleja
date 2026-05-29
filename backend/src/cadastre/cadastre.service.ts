@@ -7,7 +7,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { load as cheerioLoad } from 'cheerio';
 import * as unzipper from 'unzipper';
-import { writeArrayBuffer } from 'geotiff';
 
 export interface SseEvent {
   data: string;
@@ -288,25 +287,34 @@ export class CadastreService {
           const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
           const outOriginY = wf.originY + pxTop * wf.pixelSizeY; // pixelSizeY < 0
 
-          // Write a proper GeoTIFF with embedded ModelPixelScale, ModelTiepoint and EPSG:3301
-          const geoTiffBuf = writeArrayBuffer(rgbData, {
-            height: info.height,
-            width: info.width,
-            SamplesPerPixel: 3,
-            PhotometricInterpretation: 2, // RGB
-            Compression: 5,               // LZW
-            ModelPixelScale: [wf.pixelSizeX, Math.abs(wf.pixelSizeY), 0],
-            ModelTiepoint: [0, 0, 0, outOriginX, outOriginY, 0],
-            GTModelTypeGeoKey:     1,    // Projected CRS
-            GTRasterTypeGeoKey:    1,    // PixelIsArea
-            ProjectedCSTypeGeoKey: 3301, // EPSG:3301 L-EST97
-          });
-          await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename), Buffer.from(geoTiffBuf));
+          // Write as standard little-endian TIFF (sharp output) — readable by all tools
+          await sharp(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
+            .tiff({ compression: 'lzw' })
+            .toFile(path.join(OUTPUT_DIR, tifFilename));
 
-          // Keep a companion world file as fallback for older GIS software
+          // World file (.tfw) — pixel size and geo origin for GIS software
           await fs.promises.writeFile(
             path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')),
             [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'),
+          );
+
+          // Projection file (.prj) — EPSG:3301 L-EST97 WKT so any GIS tool knows the CRS
+          const prjWkt =
+            'PROJCS["Estonian Coordinate System of 1997",' +
+            'GEOGCS["GCS_Estonian_1997",DATUM["D_Estonian_1997",' +
+            'SPHEROID["GRS_1980",6378137.0,298.257222101]],' +
+            'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],' +
+            'PROJECTION["Lambert_Conformal_Conic"],' +
+            'PARAMETER["False_Easting",500000.0],' +
+            'PARAMETER["False_Northing",6375000.0],' +
+            'PARAMETER["Central_Meridian",24.0],' +
+            'PARAMETER["Standard_Parallel_1",59.33333333333334],' +
+            'PARAMETER["Standard_Parallel_2",58.0],' +
+            'PARAMETER["Latitude_Of_Origin",57.51755393055556],' +
+            'UNIT["Meter",1.0]]';
+          await fs.promises.writeFile(
+            path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.prj')),
+            prjWkt,
           );
 
           tifFilenames.push(tifFilename);
