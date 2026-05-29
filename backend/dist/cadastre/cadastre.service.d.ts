@@ -40,6 +40,7 @@ export declare class CadastreService {
     private downloadAndExtractTif;
     private findFile;
     private parseWorldFile;
+    private patchGeoTags;
     private getChmTifUrls;
     private readGeoTiffTransform;
     private extractChmHeights;
