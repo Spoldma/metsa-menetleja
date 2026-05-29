@@ -27,11 +27,19 @@ export interface CadastreInfo {
   coordinates: number[][][];
 }
 
+export interface ForestHeightStats {
+  averageHeight: number;
+  forestPixelCount: number;
+  totalPixelCount: number;
+  shares: { threshold: number; percentage: number }[];
+}
+
 export interface AnalysisResult {
   info: CadastreInfo;
   originalImage: string;
   clippedImage: string;
   tifFiles: string[];
+  heightStats?: ForestHeightStats;
 }
 
 interface WorldFile {
@@ -49,6 +57,8 @@ const WMS_BASE =
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
 const GEOPORTAL_SEARCH =
   'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
+const GEOPORTAL_CHM_SEARCH =
+  'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
 const GEOPORTAL_BASE = 'https://geoportaal.maaamet.ee';
 const MAX_IMG_PX = 800;
 const PADDING_RATIO = 0.05;
@@ -194,18 +204,7 @@ export class CadastreService {
           const wf = this.parseWorldFile(worldFilePath);
 
           // Check that the bbox region has actual data (not mostly black)
-          let usable: boolean;
-          try {
-            usable = await this.isTifUsable(tifPath, wf, bbox);
-          } catch (err) {
-            const reason = err instanceof Error ? err.message : 'tundmatu viga';
-            emit(
-              subject,
-              'tif_warning',
-              `${zipLabel}: TIF kontrollimine ebaõnnestus (${reason})${attempt + 1 < zipUrls.length ? ', proovin vanemat versiooni...' : ''}`,
-            );
-            continue;
-          }
+          const usable = await this.isTifUsable(tifPath, wf, bbox);
           if (!usable) {
             emit(
               subject,
@@ -239,51 +238,8 @@ export class CadastreService {
           const suffix = kaardilehtIds.length > 1 ? `_${i + 1}of${kaardilehtIds.length}` : '';
           const tifFilename = `${safeCode}_${ts}${suffix}.tif`;
 
-          // Convert cadaster ring to pixel coordinates within the crop
-          const toPixelInCrop = (c: number[]): [number, number] => [
-            Math.round((c[0] - wf.originX) / wf.pixelSizeX - pxLeft),
-            Math.round((wf.originY - c[1]) / Math.abs(wf.pixelSizeY) - pxTop),
-          ];
-          const points = ring
-            .map(toPixelInCrop)
-            .map(([px, py]) => `${px},${py}`)
-            .join(' ');
-          // Black background + white polygon: multiply blend zeros out pixels outside the ring
-          const svgMask = Buffer.from(
-            `<svg xmlns="http://www.w3.org/2000/svg" width="${cropW}" height="${cropH}">` +
-            `<rect x="0" y="0" width="${cropW}" height="${cropH}" fill="black"/>` +
-            `<polygon points="${points}" fill="white"/>` +
-            `</svg>`,
-          );
-
-          // Step 1: extract bbox crop to buffer (limitInputPixels needed for large TIFs)
-          const cropBuf = await sharp(tifPath, { limitInputPixels: false })
+          await sharp(tifPath, { limitInputPixels: false })
             .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-            .png()
-            .toBuffer();
-
-          // Step 2: multiply mask onto crop (inside=original, outside=black)
-          // Composite always produces 4 channels — strip alpha via raw to get clean 3-ch TIF
-          const { data, info } = await sharp(cropBuf)
-            .composite([{ input: svgMask, blend: 'multiply' }])
-            .raw()
-            .toBuffer({ resolveWithObject: true });
-
-          const ch = info.channels as number;
-          const rgbData =
-            ch === 4
-              ? (() => {
-                  const b = Buffer.alloc(info.width * info.height * 3);
-                  for (let p = 0; p < info.width * info.height; p++) {
-                    b[p * 3]     = data[p * 4];
-                    b[p * 3 + 1] = data[p * 4 + 1];
-                    b[p * 3 + 2] = data[p * 4 + 2];
-                  }
-                  return b;
-                })()
-              : data;
-
-          await sharp(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
             .tiff({ compression: 'lzw' })
             .toFile(path.join(OUTPUT_DIR, tifFilename));
 
@@ -306,6 +262,66 @@ export class CadastreService {
 
       if (!tifFilenames.length) throw new Error('TIF-failid ei kata katastriüksust');
 
+      // Step 6 – CHM height data (non-fatal)
+      emit(subject, 'chm_download', 'Laen kõrgusandmeid...');
+      const chmKaardiruuts = [...new Set(kaardilehtIds.map((id) => id.substring(0, 4)))];
+      const allHeightSamples: number[] = [];
+      let allTotalPixels = 0;
+
+      for (const ruut of chmKaardiruuts) {
+        let chmUrls: string[];
+        try {
+          chmUrls = await this.getChmTifUrls(ruut);
+        } catch {
+          emit(subject, 'tif_warning', `CHM ${ruut}: faile ei leitud`);
+          continue;
+        }
+
+        for (let attempt = 0; attempt < chmUrls.length; attempt++) {
+          const tifSavePath = path.join(
+            OUTPUT_DIR,
+            `${safeCode}_${ts}_chm_${ruut}${attempt > 0 ? `_v${attempt + 1}` : ''}.tif`,
+          );
+          try {
+            const dlRes = await axios.get<NodeJS.ReadableStream>(chmUrls[attempt], {
+              responseType: 'stream',
+              timeout: 300000,
+            });
+            await new Promise<void>((resolve, reject) => {
+              const ws = fs.createWriteStream(tifSavePath);
+              (dlRes.data as NodeJS.ReadableStream).pipe(ws).on('finish', resolve).on('error', reject);
+            });
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : 'tundmatu viga';
+            emit(subject, 'tif_warning', `CHM ${ruut} v${attempt + 1}: allalaadimine ebaõnnestus (${reason})`);
+            continue;
+          }
+
+          let extracted: { samples: number[]; fullyCovered: boolean; totalPixels: number } | null = null;
+          try {
+            extracted = await this.extractChmHeights(tifSavePath, ring);
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : 'tundmatu viga';
+            emit(subject, 'tif_warning', `CHM ${ruut} v${attempt + 1}: ${reason}`);
+          } finally {
+            await fs.promises.unlink(tifSavePath).catch(() => {});
+          }
+
+          if (!extracted) continue;
+          allHeightSamples.push(...extracted.samples);
+          allTotalPixels += extracted.totalPixels;
+          if (extracted.fullyCovered) break;
+          if (attempt + 1 < chmUrls.length) {
+            emit(subject, 'tif_warning', `CHM ${ruut} v${attempt + 1}: ei kata täielikult, proovin vanemat...`);
+          }
+        }
+      }
+
+      const heightStats: ForestHeightStats | undefined =
+        allHeightSamples.length > 0
+          ? this.computeHeightStats(allHeightSamples, allTotalPixels)
+          : undefined;
+
       const info: CadastreInfo = {
         code,
         address: item.address?.shortAddress ?? '',
@@ -319,6 +335,7 @@ export class CadastreService {
         originalImage: wmsBuffer.toString('base64'),
         clippedImage: wmsClippedBuffer.toString('base64'),
         tifFiles: tifFilenames,
+        heightStats,
       };
 
       emit(subject, 'complete', 'Analüüs valmis!', result);
@@ -388,29 +405,20 @@ export class CadastreService {
   }
 
   private async isTifUsable(tifPath: string, wf: WorldFile, bbox: BBox): Promise<boolean> {
-    const meta = await sharp(tifPath, { limitInputPixels: false }).metadata();
-    const tifW = meta.width ?? 0;
-    const tifH = meta.height ?? 0;
-    if (!tifW || !tifH) return false;
+    try {
+      const meta = await sharp(tifPath, { limitInputPixels: false }).metadata();
+      const tifW = meta.width ?? 0;
+      const tifH = meta.height ?? 0;
+      if (!tifW || !tifH) return false;
 
-    const pxLeft   = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
-    const pxTop    = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
-    const pxRight  = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
-    const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
-    const cropW = pxRight - pxLeft;
-    const cropH = pxBottom - pxTop;
-    if (cropW <= 0 || cropH <= 0) return false;
-
-    // sharp .stats() ignores chained .extract() and reports whole-image statistics.
-    // Extract to a buffer first, then create a fresh instance to get correct crop stats.
-    const cropBuf = await sharp(tifPath, { limitInputPixels: false })
-      .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-      .png()
-      .toBuffer();
-
-    const stats = await sharp(cropBuf).stats();
-    // PNG is always 8-bit; usable if any channel mean exceeds 2% of 255 ≈ 5
-    return stats.channels.some((ch) => ch.mean > 5);
+      const pxLeft   = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
+      const pxTop    = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
+      const pxRight  = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
+      const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
+      return pxRight > pxLeft && pxBottom > pxTop;
+    } catch {
+      return false;
+    }
   }
 
   private async downloadAndExtractTif(
@@ -476,6 +484,161 @@ export class CadastreService {
       originX: lines[4],
       originY: lines[5],
     };
+  }
+
+  // CHM files on geoportal are direct TIF downloads (no ZIP).
+  private async getChmTifUrls(kaardiruut: string): Promise<string[]> {
+    const url = `${GEOPORTAL_CHM_SEARCH}&kaardiruut=${encodeURIComponent(kaardiruut)}&_=${Date.now()}`;
+    const res = await axios.get<string>(url, { timeout: 15000 });
+    const $ = cheerioLoad(res.data);
+    const links: string[] = [];
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href') ?? '';
+      if (/[?&]f=[^&]+\.tif/i.test(href)) {
+        links.push(href.startsWith('http') ? href : `${GEOPORTAL_BASE}/${href.replace(/^\//, '')}`);
+      }
+    });
+    if (!links.length) throw new Error(`CHM failid ei leitud: ${kaardiruut}`);
+    links.sort((a, b) => b.localeCompare(a)); // year in filename → newest first
+    return links;
+  }
+
+  // Read GeoTIFF embedded geotransform. GDAL writes the IFD at the END of the file,
+  // so we seek to the IFD offset from the header rather than reading a fixed chunk.
+  private readGeoTiffTransform(tifPath: string): WorldFile {
+    const fd = fs.openSync(tifPath, 'r');
+    try {
+      const hdr = Buffer.alloc(8);
+      fs.readSync(fd, hdr, 0, 8, 0);
+      const isLE = hdr[0] === 0x49;
+      const r16 = (b: Buffer, o: number) => (isLE ? b.readUInt16LE(o) : b.readUInt16BE(o));
+      const r32 = (b: Buffer, o: number) => (isLE ? b.readUInt32LE(o) : b.readUInt32BE(o));
+      const r64 = (b: Buffer, o: number) => (isLE ? b.readDoubleLE(o) : b.readDoubleBE(o));
+      if (r16(hdr, 2) !== 42) throw new Error('Vigane TIFF fail');
+
+      let ifdOff = r32(hdr, 4);
+      let scaleX = 0, scaleY = 0, originX = 0, originY = 0;
+      let hasScale = false, hasTie = false;
+
+      while (ifdOff > 0 && !(hasScale && hasTie)) {
+        const cntBuf = Buffer.alloc(2);
+        fs.readSync(fd, cntBuf, 0, 2, ifdOff);
+        const n = r16(cntBuf, 0);
+        const ifdBuf = Buffer.alloc(n * 12);
+        fs.readSync(fd, ifdBuf, 0, n * 12, ifdOff + 2);
+
+        for (let i = 0; i < n && !(hasScale && hasTie); i++) {
+          const e = i * 12;
+          const tag = r16(ifdBuf, e);
+          const dataOff = r32(ifdBuf, e + 8);
+          if (tag === 33550 && !hasScale) {       // ModelPixelScaleTag
+            const d = Buffer.alloc(24);
+            fs.readSync(fd, d, 0, 24, dataOff);
+            scaleX = r64(d, 0); scaleY = r64(d, 8); hasScale = true;
+          } else if (tag === 33922 && !hasTie) {  // ModelTiepointTag
+            const d = Buffer.alloc(48);
+            fs.readSync(fd, d, 0, 48, dataOff);
+            originX = r64(d, 24); originY = r64(d, 32); hasTie = true;
+          }
+        }
+
+        const nxtBuf = Buffer.alloc(4);
+        fs.readSync(fd, nxtBuf, 0, 4, ifdOff + 2 + n * 12);
+        ifdOff = r32(nxtBuf, 0);
+      }
+
+      if (!hasScale || !hasTie) throw new Error('GeoTIFF georeference tagid puuduvad');
+      return { pixelSizeX: scaleX, pixelSizeY: -scaleY, originX, originY };
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  private async extractChmHeights(
+    tifPath: string,
+    ring: number[][],
+  ): Promise<{ samples: number[]; fullyCovered: boolean; totalPixels: number }> {
+    const wf = this.readGeoTiffTransform(tifPath);
+    const meta = await sharp(tifPath, { limitInputPixels: false }).metadata();
+    const tifW = meta.width ?? 0;
+    const tifH = meta.height ?? 0;
+    if (!tifW || !tifH) return { samples: [], fullyCovered: false, totalPixels: 0 };
+
+    const ringXs = ring.map((c) => c[0]);
+    const ringYs = ring.map((c) => c[1]);
+    const polyMinX = Math.min(...ringXs), polyMaxX = Math.max(...ringXs);
+    const polyMinY = Math.min(...ringYs), polyMaxY = Math.max(...ringYs);
+
+    const fullyCovered =
+      polyMinX >= wf.originX &&
+      polyMaxX <= wf.originX + tifW * wf.pixelSizeX &&
+      polyMinY >= wf.originY + tifH * wf.pixelSizeY &&
+      polyMaxY <= wf.originY;
+
+    const pxLeft   = Math.max(0, Math.floor((polyMinX - wf.originX) / wf.pixelSizeX));
+    const pxTop    = Math.max(0, Math.floor((wf.originY - polyMaxY) / Math.abs(wf.pixelSizeY)));
+    const pxRight  = Math.min(tifW, Math.ceil((polyMaxX - wf.originX) / wf.pixelSizeX));
+    const pxBottom = Math.min(tifH, Math.ceil((wf.originY - polyMinY) / Math.abs(wf.pixelSizeY)));
+    const cropW = pxRight - pxLeft;
+    const cropH = pxBottom - pxTop;
+    if (cropW <= 0 || cropH <= 0) return { samples: [], fullyCovered: false, totalPixels: 0 };
+
+    const rawBuffer = await sharp(tifPath, { limitInputPixels: false })
+      .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+      .raw()
+      .toBuffer();
+
+    const channels = meta.channels ?? 1;
+    const bytesPerSample = rawBuffer.length / (cropW * cropH * channels);
+
+    let totalPixels = 0;
+    const samples: number[] = [];
+
+    for (let row = 0; row < cropH; row++) {
+      for (let col = 0; col < cropW; col++) {
+        const geoX = wf.originX + (pxLeft + col + 0.5) * wf.pixelSizeX;
+        const geoY = wf.originY + (pxTop + row + 0.5) * wf.pixelSizeY;
+        if (!this.pointInPolygon(geoX, geoY, ring)) continue;
+        totalPixels++;
+
+        const i = (row * cropW + col) * channels;
+        let val: number;
+        if (bytesPerSample === 4) val = rawBuffer.readFloatLE(i * 4);
+        else if (bytesPerSample === 2) val = rawBuffer.readUInt16LE(i * 2);
+        else val = rawBuffer[i];
+
+        if (!isFinite(val) || isNaN(val) || val <= 4) continue; // only forest (> 4 m)
+        samples.push(val);
+      }
+    }
+
+    return { samples, fullyCovered, totalPixels };
+  }
+
+  private pointInPolygon(x: number, y: number, ring: number[][]): boolean {
+    let inside = false;
+    const n = ring.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+        inside = !inside;
+    }
+    return inside;
+  }
+
+  private computeHeightStats(samples: number[], totalPixels: number): ForestHeightStats {
+    const forestPixelCount = samples.length;
+    const averageHeight =
+      forestPixelCount > 0 ? samples.reduce((s, v) => s + v, 0) / forestPixelCount : 0;
+    const shares = [10, 15, 20, 25].map((t) => ({
+      threshold: t,
+      percentage:
+        forestPixelCount > 0
+          ? (samples.filter((v) => v > t).length / forestPixelCount) * 100
+          : 0,
+    }));
+    return { averageHeight, forestPixelCount, totalPixelCount: totalPixels, shares };
   }
 
 }

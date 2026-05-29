@@ -18,11 +18,19 @@ export interface CadastreInfo {
   coordinates: number[][][]
 }
 
+export interface ForestHeightStats {
+  averageHeight: number
+  forestPixelCount: number
+  totalPixelCount: number
+  shares: { threshold: number; percentage: number }[]
+}
+
 export interface AnalysisResult {
   info: CadastreInfo
   originalImage: string
   clippedImage: string
   tifFiles: string[]
+  heightStats?: ForestHeightStats
 }
 
 export default function App() {

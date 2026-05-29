@@ -1,4 +1,4 @@
-import type { AnalysisResult } from '../App'
+import type { AnalysisResult, ForestHeightStats } from '../App'
 
 interface Props {
   result: AnalysisResult
@@ -14,7 +14,7 @@ function formatCoord(v: number): string {
 }
 
 export default function ResultsDisplay({ result }: Props) {
-  const { info, originalImage, clippedImage, tifFiles } = result
+  const { info, originalImage, clippedImage, tifFiles, heightStats } = result
 
   return (
     <div className="space-y-8 animate-fadeIn">
@@ -89,6 +89,70 @@ export default function ResultsDisplay({ result }: Props) {
           </ul>
         </div>
       )}
+
+      {heightStats && <HeightStatsCard stats={heightStats} />}
+    </div>
+  )
+}
+
+function HeightStatsCard({ stats }: { stats: ForestHeightStats }) {
+  const forestPct =
+    stats.totalPixelCount > 0
+      ? (stats.forestPixelCount / stats.totalPixelCount) * 100
+      : 0
+  return (
+    <div className="rounded-2xl border border-forest-light bg-forest/60 backdrop-blur p-8 shadow-xl">
+      <h3 className="text-mist font-semibold mb-6 flex items-center gap-2">
+        <svg className="w-5 h-5 text-leaf" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
+        </svg>
+        Metsa kõrgus
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <StatBadge label="Keskmine kõrgus" value={`${stats.averageHeight.toFixed(1)} m`} />
+        <StatBadge label="Metsa osakaal" value={`${forestPct.toFixed(1)} %`} subtitle="(kõrgem kui 4 m)" />
+        <StatBadge
+          label="Metsakattega pikslit"
+          value={stats.forestPixelCount.toLocaleString()}
+          subtitle={`/ ${stats.totalPixelCount.toLocaleString()}`}
+        />
+      </div>
+      <p className="text-xs text-forest-accent uppercase tracking-wider mb-4">
+        Osakaal metsakattega alast (kõrgem kui 4 m)
+      </p>
+      <div className="space-y-3">
+        {stats.shares.map(({ threshold, percentage }) => (
+          <HeightBar key={threshold} threshold={threshold} percentage={percentage} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StatBadge({ label, value, subtitle }: { label: string; value: string; subtitle?: string }) {
+  return (
+    <div className="rounded-xl bg-forest-dark px-4 py-3 text-center">
+      <dt className="text-xs text-forest-accent uppercase tracking-wider mb-1">{label}</dt>
+      <dd className="text-mist text-2xl font-bold">{value}</dd>
+      {subtitle && <dd className="text-forest-accent text-xs mt-0.5">{subtitle}</dd>}
+    </div>
+  )
+}
+
+function HeightBar({ threshold, percentage }: { threshold: number; percentage: number }) {
+  const pct = Math.min(100, Math.max(0, percentage))
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-forest-accent text-sm font-mono w-14 flex-shrink-0 text-right">
+        &gt; {threshold} m
+      </span>
+      <div className="flex-1 rounded-full bg-forest-dark h-5 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-leaf to-forest-bright transition-all duration-700"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-mist text-sm font-mono w-14 flex-shrink-0">{pct.toFixed(1)} %</span>
     </div>
   )
 }
