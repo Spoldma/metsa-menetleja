@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { load as cheerioLoad } from 'cheerio';
 import * as unzipper from 'unzipper';
+import { writeArrayBuffer } from 'geotiff';
 
 export interface SseEvent {
   data: string;
@@ -238,13 +239,66 @@ export class CadastreService {
           const suffix = kaardilehtIds.length > 1 ? `_${i + 1}of${kaardilehtIds.length}` : '';
           const tifFilename = `${safeCode}_${ts}${suffix}.tif`;
 
-          await sharp(tifPath, { limitInputPixels: false })
-            .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-            .tiff({ compression: 'lzw' })
-            .toFile(path.join(OUTPUT_DIR, tifFilename));
+          // SVG mask: black outside polygon, white inside — used with multiply blend
+          const toPixelCrop = (c: number[]): [number, number] => [
+            Math.round((c[0] - wf.originX) / wf.pixelSizeX - pxLeft),
+            Math.round((wf.originY - c[1]) / Math.abs(wf.pixelSizeY) - pxTop),
+          ];
+          const cropPoints = ring.map(toPixelCrop).map(([x, y]) => `${x},${y}`).join(' ');
+          const svgMask = Buffer.from(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${cropW}" height="${cropH}">` +
+            `<rect x="0" y="0" width="${cropW}" height="${cropH}" fill="black"/>` +
+            `<polygon points="${cropPoints}" fill="white"/>` +
+            `</svg>`,
+          );
 
+          // Step 1: extract bbox crop to buffer
+          const cropBuf = await sharp(tifPath, { limitInputPixels: false })
+            .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+            .png()
+            .toBuffer();
+
+          // Step 2: multiply mask onto crop (inside=original, outside=black)
+          // Composite always produces 4 channels — strip alpha via raw to get clean 3-ch TIF
+          const { data, info } = await sharp(cropBuf)
+            .composite([{ input: svgMask, blend: 'multiply' }])
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+          const ch = info.channels as number;
+          const rgbData =
+            ch === 4
+              ? (() => {
+                  const b = Buffer.alloc(info.width * info.height * 3);
+                  for (let p = 0; p < info.width * info.height; p++) {
+                    b[p * 3]     = data[p * 4];
+                    b[p * 3 + 1] = data[p * 4 + 1];
+                    b[p * 3 + 2] = data[p * 4 + 2];
+                  }
+                  return b;
+                })()
+              : data;
+
+          // Geo origin of the top-left pixel of the crop
           const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
-          const outOriginY = wf.originY + pxTop * wf.pixelSizeY;
+          const outOriginY = wf.originY + pxTop * wf.pixelSizeY; // pixelSizeY < 0
+
+          // Write a proper GeoTIFF with embedded ModelPixelScale, ModelTiepoint and EPSG:3301
+          const geoTiffBuf = writeArrayBuffer(rgbData, {
+            height: info.height,
+            width: info.width,
+            SamplesPerPixel: 3,
+            PhotometricInterpretation: 2, // RGB
+            Compression: 5,               // LZW
+            ModelPixelScale: [wf.pixelSizeX, Math.abs(wf.pixelSizeY), 0],
+            ModelTiepoint: [0, 0, 0, outOriginX, outOriginY, 0],
+            GTModelTypeGeoKey:     1,    // Projected CRS
+            GTRasterTypeGeoKey:    1,    // PixelIsArea
+            ProjectedCSTypeGeoKey: 3301, // EPSG:3301 L-EST97
+          });
+          await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename), Buffer.from(geoTiffBuf));
+
+          // Keep a companion world file as fallback for older GIS software
           await fs.promises.writeFile(
             path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')),
             [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'),

@@ -52,6 +52,7 @@ const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 const cheerio_1 = require("cheerio");
 const unzipper = __importStar(require("unzipper"));
+const geotiff_1 = require("geotiff");
 const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
 const WMS_BASE = 'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
@@ -179,12 +180,50 @@ let CadastreService = class CadastreService {
                     }
                     const suffix = kaardilehtIds.length > 1 ? `_${i + 1}of${kaardilehtIds.length}` : '';
                     const tifFilename = `${safeCode}_${ts}${suffix}.tif`;
-                    await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
+                    const toPixelCrop = (c) => [
+                        Math.round((c[0] - wf.originX) / wf.pixelSizeX - pxLeft),
+                        Math.round((wf.originY - c[1]) / Math.abs(wf.pixelSizeY) - pxTop),
+                    ];
+                    const cropPoints = ring.map(toPixelCrop).map(([x, y]) => `${x},${y}`).join(' ');
+                    const svgMask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${cropW}" height="${cropH}">` +
+                        `<rect x="0" y="0" width="${cropW}" height="${cropH}" fill="black"/>` +
+                        `<polygon points="${cropPoints}" fill="white"/>` +
+                        `</svg>`);
+                    const cropBuf = await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
                         .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-                        .tiff({ compression: 'lzw' })
-                        .toFile(path.join(OUTPUT_DIR, tifFilename));
+                        .png()
+                        .toBuffer();
+                    const { data, info } = await (0, sharp_1.default)(cropBuf)
+                        .composite([{ input: svgMask, blend: 'multiply' }])
+                        .raw()
+                        .toBuffer({ resolveWithObject: true });
+                    const ch = info.channels;
+                    const rgbData = ch === 4
+                        ? (() => {
+                            const b = Buffer.alloc(info.width * info.height * 3);
+                            for (let p = 0; p < info.width * info.height; p++) {
+                                b[p * 3] = data[p * 4];
+                                b[p * 3 + 1] = data[p * 4 + 1];
+                                b[p * 3 + 2] = data[p * 4 + 2];
+                            }
+                            return b;
+                        })()
+                        : data;
                     const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
                     const outOriginY = wf.originY + pxTop * wf.pixelSizeY;
+                    const geoTiffBuf = (0, geotiff_1.writeArrayBuffer)(rgbData, {
+                        height: info.height,
+                        width: info.width,
+                        SamplesPerPixel: 3,
+                        PhotometricInterpretation: 2,
+                        Compression: 5,
+                        ModelPixelScale: [wf.pixelSizeX, Math.abs(wf.pixelSizeY), 0],
+                        ModelTiepoint: [0, 0, 0, outOriginX, outOriginY, 0],
+                        GTModelTypeGeoKey: 1,
+                        GTRasterTypeGeoKey: 1,
+                        ProjectedCSTypeGeoKey: 3301,
+                    });
+                    await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename), Buffer.from(geoTiffBuf));
                     await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')), [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'));
                     tifFilenames.push(tifFilename);
                     sheetDone = true;

@@ -1,17 +1,23 @@
 import type { Phase, ProgressStep } from '../App'
 
 const STEP_ICONS: Record<string, string> = {
-  fetching: '🗺️',
-  bbox: '📐',
-  kaardileht: '📋',
-  downloading: '🛰️',
+  fetching:     '🗺️',
+  bbox:         '📐',
+  downloading:  '🛰️',
+  kaardileht:   '📋',
   tif_download: '⬇️',
-  tif_warning: '⚠️',
+  tif_warning:  '⚠️',
   chm_download: '🌲',
-  merging: '🔗',
-  clipping: '✂️',
-  complete: '✅',
-  error: '❌',
+  merging:      '🔗',
+  clipping:     '✂️',
+  complete:     '✅',
+  error:        '❌',
+}
+
+const STEP_COLOR: Record<string, string> = {
+  tif_warning: 'rgba(255,200,100,0.85)',
+  error:       '#f87171',
+  complete:    'var(--leaf)',
 }
 
 interface Props {
@@ -21,38 +27,53 @@ interface Props {
 
 export default function ProgressSteps({ steps, phase }: Props) {
   return (
-    <div className="rounded-2xl border border-forest-light bg-forest/60 backdrop-blur p-8 shadow-xl animate-fadeIn">
-      <h2 className="text-lg font-semibold text-mist mb-6 flex items-center gap-2">
-        <svg className="w-5 h-5 text-leaf animate-spin" viewBox="0 0 24 24" fill="none">
-          {phase === 'loading' ? (
-            <>
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </>
-          ) : null}
-        </svg>
-        {phase === 'loading' ? 'Töötan...' : 'Valmis'}
-      </h2>
-      <ol className="space-y-3">
-        {steps.map((s, i) => (
-          <li
-            key={i}
-            className={`flex items-center gap-3 text-sm transition-all ${
-              i === steps.length - 1 && phase === 'loading'
-                ? 'text-leaf font-medium'
-                : 'text-forest-accent'
-            }`}
-          >
-            <span className="text-base w-6 text-center flex-shrink-0">
-              {STEP_ICONS[s.step] ?? '⏳'}
-            </span>
-            <span>{s.message}</span>
-          </li>
-        ))}
+    <div style={{
+      borderRadius: 16,
+      border: '1px solid rgba(139,195,74,.18)',
+      background: 'linear-gradient(180deg, rgba(35,77,39,.28), rgba(13,31,13,.28))',
+      backdropFilter: 'blur(10px)',
+      padding: '28px 32px',
+      maxWidth: 680,
+    }}>
+      <h2 style={{
+        fontSize: 15, fontWeight: 600, color: 'var(--mist)',
+        marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10
+      }}>
         {phase === 'loading' && (
-          <li className="flex items-center gap-3 text-sm text-forest-accent animate-pulse">
-            <span className="w-6 text-center">⏳</span>
-            <span>...</span>
+          <svg style={{ width: 18, height: 18, color: 'var(--leaf)', animation: 'spin 1s linear infinite' }}
+            viewBox="0 0 24 24" fill="none">
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+            <path fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+        )}
+        <span style={{ color: phase === 'loading' ? 'var(--mist)' : 'var(--leaf)' }}>
+          {phase === 'loading' ? 'Töötan…' : phase === 'error' ? 'Viga' : 'Valmis'}
+        </span>
+      </h2>
+
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {steps.map((s, i) => {
+          const isLatest = i === steps.length - 1 && phase === 'loading'
+          const color = STEP_COLOR[s.step] ?? (isLatest ? 'var(--leaf-soft)' : 'var(--mist-dim)')
+          return (
+            <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14,
+              fontWeight: isLatest ? 500 : 400, color, transition: 'color 0.2s' }}>
+              <span style={{ width: 22, textAlign: 'center', flexShrink: 0, fontSize: 15 }}>
+                {STEP_ICONS[s.step] ?? '⏳'}
+              </span>
+              <span style={{ fontFamily: s.step === 'tif_warning' ? "'IBM Plex Mono',monospace" : 'inherit',
+                fontSize: s.step === 'tif_warning' ? 12 : 14 }}>
+                {s.message}
+              </span>
+            </li>
+          )
+        })}
+        {phase === 'loading' && (
+          <li style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14,
+            color: 'rgba(197,216,189,.4)', animation: 'pulse 1.5s ease-in-out infinite' }}>
+            <span style={{ width: 22, textAlign: 'center' }}>⏳</span>
+            <span>…</span>
           </li>
         )}
       </ol>

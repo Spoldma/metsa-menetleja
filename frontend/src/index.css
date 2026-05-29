@@ -2,21 +2,119 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --leaf:       #8bc34a;
+  --leaf-soft:  #a7d36a;
+  --mist:       #e9f4e1;
+  --mist-dim:   #c5d8bd;
+  --ink:        #0a160b;
+  --forest-d:   #0d1f0d;
+  --forest:     #16321a;
+  --forest-l:   #234d27;
+  --accent:     #4a7c4a;
+  --cir:        #d96b96;
+}
+
 @layer base {
-  body {
-    @apply bg-forest-dark text-mist font-sans;
+  html, body {
+    @apply bg-ink text-mist;
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    margin: 0;
   }
 }
 
 @layer utilities {
+  .font-display { font-family: 'Spectral', Georgia, serif !important; }
+  .font-mono    { font-family: 'IBM Plex Mono', ui-monospace, monospace !important; }
+
   .checkerboard {
     background-image:
-      linear-gradient(45deg, #888 25%, transparent 25%),
-      linear-gradient(-45deg, #888 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, #888 75%),
-      linear-gradient(-45deg, transparent 75%, #888 75%);
+      linear-gradient(45deg, #1a2e1a 25%, transparent 25%),
+      linear-gradient(-45deg, #1a2e1a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #1a2e1a 75%),
+      linear-gradient(-45deg, transparent 75%, #1a2e1a 75%);
     background-size: 16px 16px;
     background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-    background-color: #555;
+    background-color: #111d11;
   }
+
+  .glass {
+    background: rgba(10, 22, 11, 0.62);
+    border: 1px solid rgba(139, 195, 74, 0.22);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .kicker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--leaf);
+  }
+
+  .step-card {
+    border-radius: 14px;
+    border: 1px solid rgba(139, 195, 74, 0.16);
+    background: linear-gradient(180deg, rgba(35,77,39,.34), rgba(13,31,13,.34));
+    padding: 26px;
+  }
+
+  .map-chip {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    background: rgba(10, 22, 11, 0.78);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(139, 195, 74, 0.3);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+
+  /* cadastre input field */
+  .cad-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(10, 22, 11, 0.62);
+    border: 1px solid rgba(139, 195, 74, 0.28);
+    border-radius: 999px;
+    padding: 7px 7px 7px 20px;
+    backdrop-filter: blur(8px);
+    max-width: 460px;
+    transition: border-color 0.2s ease;
+  }
+  .cad-field:focus-within { border-color: rgba(139, 195, 74, 0.55); }
+  .cad-field input {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    outline: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    color: var(--mist);
+  }
+  .cad-field input::placeholder { color: rgba(197,216,189,.45); }
+  .cad-field .go-btn {
+    flex: none;
+    background: var(--leaf);
+    color: #10240e;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 10px 20px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: background 0.15s ease;
+    border: none;
+    cursor: pointer;
+    font-family: 'Hanken Grotesk', sans-serif;
+  }
+  .cad-field .go-btn:hover:not(:disabled) { background: var(--leaf-soft); }
+  .cad-field .go-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 }
