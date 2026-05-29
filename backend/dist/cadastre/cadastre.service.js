@@ -56,6 +56,7 @@ const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2
 const WMS_BASE = 'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
 const GEOPORTAL_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
+const GEOPORTAL_CHM_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
 const GEOPORTAL_BASE = 'https://geoportaal.maaamet.ee';
 const MAX_IMG_PX = 800;
 const PADDING_RATIO = 0.05;
@@ -158,15 +159,7 @@ let CadastreService = class CadastreService {
                         continue;
                     }
                     const wf = this.parseWorldFile(worldFilePath);
-                    let usable;
-                    try {
-                        usable = await this.isTifUsable(tifPath, wf, bbox);
-                    }
-                    catch (err) {
-                        const reason = err instanceof Error ? err.message : 'tundmatu viga';
-                        emit(subject, 'tif_warning', `${zipLabel}: TIF kontrollimine ebaõnnestus (${reason})${attempt + 1 < zipUrls.length ? ', proovin vanemat versiooni...' : ''}`);
-                        continue;
-                    }
+                    const usable = await this.isTifUsable(tifPath, wf, bbox);
                     if (!usable) {
                         emit(subject, 'tif_warning', `${zipLabel}: TIF sisaldab peamiselt musti piksleid${attempt + 1 < zipUrls.length ? ', proovin vanemat versiooni...' : ''}`);
                         continue;
@@ -186,17 +179,14 @@ let CadastreService = class CadastreService {
                     }
                     const suffix = kaardilehtIds.length > 1 ? `_${i + 1}of${kaardilehtIds.length}` : '';
                     const tifFilename = `${safeCode}_${ts}${suffix}.tif`;
-                    const toPixelInCrop = (c) => [
+                    const toPixelCrop = (c) => [
                         Math.round((c[0] - wf.originX) / wf.pixelSizeX - pxLeft),
                         Math.round((wf.originY - c[1]) / Math.abs(wf.pixelSizeY) - pxTop),
                     ];
-                    const points = ring
-                        .map(toPixelInCrop)
-                        .map(([px, py]) => `${px},${py}`)
-                        .join(' ');
+                    const cropPoints = ring.map(toPixelCrop).map(([x, y]) => `${x},${y}`).join(' ');
                     const svgMask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${cropW}" height="${cropH}">` +
                         `<rect x="0" y="0" width="${cropW}" height="${cropH}" fill="black"/>` +
-                        `<polygon points="${points}" fill="white"/>` +
+                        `<polygon points="${cropPoints}" fill="white"/>` +
                         `</svg>`);
                     const cropBuf = await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
                         .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
@@ -220,11 +210,9 @@ let CadastreService = class CadastreService {
                         : data;
                     const outOriginX = wf.originX + pxLeft * wf.pixelSizeX;
                     const outOriginY = wf.originY + pxTop * wf.pixelSizeY;
-                    const tifOutPath = path.join(OUTPUT_DIR, tifFilename);
                     await (0, sharp_1.default)(rgbData, { raw: { width: info.width, height: info.height, channels: 3 } })
                         .tiff({ compression: 'lzw' })
-                        .toFile(tifOutPath);
-                    await this.patchGeoTags(tifOutPath, wf.pixelSizeX, wf.pixelSizeY, outOriginX, outOriginY);
+                        .toFile(path.join(OUTPUT_DIR, tifFilename));
                     await fs.promises.writeFile(path.join(OUTPUT_DIR, tifFilename.replace('.tif', '.tfw')), [wf.pixelSizeX, 0, 0, wf.pixelSizeY, outOriginX, outOriginY].join('\n'));
                     const prjWkt = 'PROJCS["Estonian Coordinate System of 1997",' +
                         'GEOGCS["GCS_Estonian_1997",DATUM["D_Estonian_1997",' +
@@ -249,6 +237,61 @@ let CadastreService = class CadastreService {
             }
             if (!tifFilenames.length)
                 throw new Error('TIF-failid ei kata katastriüksust');
+            emit(subject, 'chm_download', 'Laen kõrgusandmeid...');
+            const chmKaardiruuts = [...new Set(kaardilehtIds.map((id) => id.substring(0, 4)))];
+            const allHeightSamples = [];
+            let allTotalPixels = 0;
+            for (const ruut of chmKaardiruuts) {
+                let chmUrls;
+                try {
+                    chmUrls = await this.getChmTifUrls(ruut);
+                }
+                catch {
+                    emit(subject, 'tif_warning', `CHM ${ruut}: faile ei leitud`);
+                    continue;
+                }
+                for (let attempt = 0; attempt < chmUrls.length; attempt++) {
+                    const tifSavePath = path.join(OUTPUT_DIR, `${safeCode}_${ts}_chm_${ruut}${attempt > 0 ? `_v${attempt + 1}` : ''}.tif`);
+                    try {
+                        const dlRes = await axios_1.default.get(chmUrls[attempt], {
+                            responseType: 'stream',
+                            timeout: 300000,
+                        });
+                        await new Promise((resolve, reject) => {
+                            const ws = fs.createWriteStream(tifSavePath);
+                            dlRes.data.pipe(ws).on('finish', resolve).on('error', reject);
+                        });
+                    }
+                    catch (err) {
+                        const reason = err instanceof Error ? err.message : 'tundmatu viga';
+                        emit(subject, 'tif_warning', `CHM ${ruut} v${attempt + 1}: allalaadimine ebaõnnestus (${reason})`);
+                        continue;
+                    }
+                    let extracted = null;
+                    try {
+                        extracted = await this.extractChmHeights(tifSavePath, ring);
+                    }
+                    catch (err) {
+                        const reason = err instanceof Error ? err.message : 'tundmatu viga';
+                        emit(subject, 'tif_warning', `CHM ${ruut} v${attempt + 1}: ${reason}`);
+                    }
+                    finally {
+                        await fs.promises.unlink(tifSavePath).catch(() => { });
+                    }
+                    if (!extracted)
+                        continue;
+                    allHeightSamples.push(...extracted.samples);
+                    allTotalPixels += extracted.totalPixels;
+                    if (extracted.fullyCovered)
+                        break;
+                    if (attempt + 1 < chmUrls.length) {
+                        emit(subject, 'tif_warning', `CHM ${ruut} v${attempt + 1}: ei kata täielikult, proovin vanemat...`);
+                    }
+                }
+            }
+            const heightStats = allHeightSamples.length > 0
+                ? this.computeHeightStats(allHeightSamples, allTotalPixels)
+                : undefined;
             const info = {
                 code,
                 address: item.address?.shortAddress ?? '',
@@ -261,6 +304,7 @@ let CadastreService = class CadastreService {
                 originalImage: wmsBuffer.toString('base64'),
                 clippedImage: wmsClippedBuffer.toString('base64'),
                 tifFiles: tifFilenames,
+                heightStats,
             };
             emit(subject, 'complete', 'Analüüs valmis!', result);
             subject.complete();
@@ -323,25 +367,21 @@ let CadastreService = class CadastreService {
         return zipLinks;
     }
     async isTifUsable(tifPath, wf, bbox) {
-        const meta = await (0, sharp_1.default)(tifPath, { limitInputPixels: false }).metadata();
-        const tifW = meta.width ?? 0;
-        const tifH = meta.height ?? 0;
-        if (!tifW || !tifH)
+        try {
+            const meta = await (0, sharp_1.default)(tifPath, { limitInputPixels: false }).metadata();
+            const tifW = meta.width ?? 0;
+            const tifH = meta.height ?? 0;
+            if (!tifW || !tifH)
+                return false;
+            const pxLeft = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
+            const pxTop = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
+            const pxRight = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
+            const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
+            return pxRight > pxLeft && pxBottom > pxTop;
+        }
+        catch {
             return false;
-        const pxLeft = Math.max(0, Math.floor((bbox.minX - wf.originX) / wf.pixelSizeX));
-        const pxTop = Math.max(0, Math.floor((wf.originY - bbox.maxY) / Math.abs(wf.pixelSizeY)));
-        const pxRight = Math.min(tifW, Math.ceil((bbox.maxX - wf.originX) / wf.pixelSizeX));
-        const pxBottom = Math.min(tifH, Math.ceil((wf.originY - bbox.minY) / Math.abs(wf.pixelSizeY)));
-        const cropW = pxRight - pxLeft;
-        const cropH = pxBottom - pxTop;
-        if (cropW <= 0 || cropH <= 0)
-            return false;
-        const cropBuf = await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
-            .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
-            .png()
-            .toBuffer();
-        const stats = await (0, sharp_1.default)(cropBuf).stats();
-        return stats.channels.some((ch) => ch.mean > 5);
+        }
     }
     async downloadAndExtractTif(zipUrl, tempDir, zipSavePath) {
         const res = await axios_1.default.get(zipUrl, {
@@ -397,69 +437,147 @@ let CadastreService = class CadastreService {
             originY: lines[5],
         };
     }
-    async patchGeoTags(filePath, pixelSizeX, pixelSizeY, originX, originY) {
-        const src = await fs.promises.readFile(filePath);
-        if (src[0] !== 0x49 || src[1] !== 0x49 || src.readUInt16LE(2) !== 42) {
-            throw new Error('patchGeoTags: expected little-endian TIFF (II/42)');
-        }
-        const ifdOff = src.readUInt32LE(4);
-        const nOrig = src.readUInt16LE(ifdOff);
-        const origEntries = [];
-        for (let i = 0; i < nOrig; i++) {
-            origEntries.push(Buffer.from(src.subarray(ifdOff + 2 + i * 12, ifdOff + 2 + (i + 1) * 12)));
-        }
-        const GEO_TAGS = new Set([33550, 33922, 34735, 34736, 34737]);
-        const keepEntries = origEntries.filter(e => !GEO_TAGS.has(e.readUInt16LE(0)));
-        const geoBlock = Buffer.alloc(8 * 3 + 8 * 6 + 2 * 16);
-        let p = 0;
-        const base = src.length;
-        const mpsOff = base + p;
-        geoBlock.writeDoubleLE(pixelSizeX, p);
-        p += 8;
-        geoBlock.writeDoubleLE(Math.abs(pixelSizeY), p);
-        p += 8;
-        geoBlock.writeDoubleLE(0, p);
-        p += 8;
-        const mtpOff = base + p;
-        geoBlock.writeDoubleLE(0, p);
-        p += 8;
-        geoBlock.writeDoubleLE(0, p);
-        p += 8;
-        geoBlock.writeDoubleLE(0, p);
-        p += 8;
-        geoBlock.writeDoubleLE(originX, p);
-        p += 8;
-        geoBlock.writeDoubleLE(originY, p);
-        p += 8;
-        geoBlock.writeDoubleLE(0, p);
-        p += 8;
-        const gkdOff = base + p;
-        [1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 3301].forEach(v => {
-            geoBlock.writeUInt16LE(v, p);
-            p += 2;
+    async getChmTifUrls(kaardiruut) {
+        const url = `${GEOPORTAL_CHM_SEARCH}&kaardiruut=${encodeURIComponent(kaardiruut)}&_=${Date.now()}`;
+        const res = await axios_1.default.get(url, { timeout: 15000 });
+        const $ = (0, cheerio_1.load)(res.data);
+        const links = [];
+        $('a[href]').each((_, el) => {
+            const href = $(el).attr('href') ?? '';
+            if (/[?&]f=[^&]+\.tif/i.test(href)) {
+                links.push(href.startsWith('http') ? href : `${GEOPORTAL_BASE}/${href.replace(/^\//, '')}`);
+            }
         });
-        const mkEntry = (tag, type, count, off) => {
-            const e = Buffer.alloc(12);
-            e.writeUInt16LE(tag, 0);
-            e.writeUInt16LE(type, 2);
-            e.writeUInt32LE(count, 4);
-            e.writeUInt32LE(off, 8);
-            return e;
-        };
-        const allEntries = [
-            ...keepEntries,
-            mkEntry(33550, 12, 3, mpsOff),
-            mkEntry(33922, 12, 6, mtpOff),
-            mkEntry(34735, 3, 16, gkdOff),
-        ].sort((a, b) => a.readUInt16LE(0) - b.readUInt16LE(0));
-        const newIfdOff = src.length + geoBlock.length;
-        const newIfd = Buffer.alloc(2 + allEntries.length * 12 + 4);
-        newIfd.writeUInt16LE(allEntries.length, 0);
-        allEntries.forEach((e, i) => e.copy(newIfd, 2 + i * 12));
-        newIfd.writeUInt32LE(0, 2 + allEntries.length * 12);
-        const newHdr = Buffer.from(src.subarray(0, 8));
-        newHdr.writeUInt32LE(newIfdOff, 4);
-        await fs.promises.writeFile(filePath, Buffer.concat([newHdr, src.subarray(8), geoBlock, newIfd]));
+        if (!links.length)
+            throw new Error(`CHM failid ei leitud: ${kaardiruut}`);
+        links.sort((a, b) => b.localeCompare(a));
+        return links;
+    }
+    readGeoTiffTransform(tifPath) {
+        const fd = fs.openSync(tifPath, 'r');
+        try {
+            const hdr = Buffer.alloc(8);
+            fs.readSync(fd, hdr, 0, 8, 0);
+            const isLE = hdr[0] === 0x49;
+            const r16 = (b, o) => (isLE ? b.readUInt16LE(o) : b.readUInt16BE(o));
+            const r32 = (b, o) => (isLE ? b.readUInt32LE(o) : b.readUInt32BE(o));
+            const r64 = (b, o) => (isLE ? b.readDoubleLE(o) : b.readDoubleBE(o));
+            if (r16(hdr, 2) !== 42)
+                throw new Error('Vigane TIFF fail');
+            let ifdOff = r32(hdr, 4);
+            let scaleX = 0, scaleY = 0, originX = 0, originY = 0;
+            let hasScale = false, hasTie = false;
+            while (ifdOff > 0 && !(hasScale && hasTie)) {
+                const cntBuf = Buffer.alloc(2);
+                fs.readSync(fd, cntBuf, 0, 2, ifdOff);
+                const n = r16(cntBuf, 0);
+                const ifdBuf = Buffer.alloc(n * 12);
+                fs.readSync(fd, ifdBuf, 0, n * 12, ifdOff + 2);
+                for (let i = 0; i < n && !(hasScale && hasTie); i++) {
+                    const e = i * 12;
+                    const tag = r16(ifdBuf, e);
+                    const dataOff = r32(ifdBuf, e + 8);
+                    if (tag === 33550 && !hasScale) {
+                        const d = Buffer.alloc(24);
+                        fs.readSync(fd, d, 0, 24, dataOff);
+                        scaleX = r64(d, 0);
+                        scaleY = r64(d, 8);
+                        hasScale = true;
+                    }
+                    else if (tag === 33922 && !hasTie) {
+                        const d = Buffer.alloc(48);
+                        fs.readSync(fd, d, 0, 48, dataOff);
+                        originX = r64(d, 24);
+                        originY = r64(d, 32);
+                        hasTie = true;
+                    }
+                }
+                const nxtBuf = Buffer.alloc(4);
+                fs.readSync(fd, nxtBuf, 0, 4, ifdOff + 2 + n * 12);
+                ifdOff = r32(nxtBuf, 0);
+            }
+            if (!hasScale || !hasTie)
+                throw new Error('GeoTIFF georeference tagid puuduvad');
+            return { pixelSizeX: scaleX, pixelSizeY: -scaleY, originX, originY };
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+    }
+    async extractChmHeights(tifPath, ring) {
+        const wf = this.readGeoTiffTransform(tifPath);
+        const meta = await (0, sharp_1.default)(tifPath, { limitInputPixels: false }).metadata();
+        const tifW = meta.width ?? 0;
+        const tifH = meta.height ?? 0;
+        if (!tifW || !tifH)
+            return { samples: [], fullyCovered: false, totalPixels: 0 };
+        const ringXs = ring.map((c) => c[0]);
+        const ringYs = ring.map((c) => c[1]);
+        const polyMinX = Math.min(...ringXs), polyMaxX = Math.max(...ringXs);
+        const polyMinY = Math.min(...ringYs), polyMaxY = Math.max(...ringYs);
+        const fullyCovered = polyMinX >= wf.originX &&
+            polyMaxX <= wf.originX + tifW * wf.pixelSizeX &&
+            polyMinY >= wf.originY + tifH * wf.pixelSizeY &&
+            polyMaxY <= wf.originY;
+        const pxLeft = Math.max(0, Math.floor((polyMinX - wf.originX) / wf.pixelSizeX));
+        const pxTop = Math.max(0, Math.floor((wf.originY - polyMaxY) / Math.abs(wf.pixelSizeY)));
+        const pxRight = Math.min(tifW, Math.ceil((polyMaxX - wf.originX) / wf.pixelSizeX));
+        const pxBottom = Math.min(tifH, Math.ceil((wf.originY - polyMinY) / Math.abs(wf.pixelSizeY)));
+        const cropW = pxRight - pxLeft;
+        const cropH = pxBottom - pxTop;
+        if (cropW <= 0 || cropH <= 0)
+            return { samples: [], fullyCovered: false, totalPixels: 0 };
+        const rawBuffer = await (0, sharp_1.default)(tifPath, { limitInputPixels: false })
+            .extract({ left: pxLeft, top: pxTop, width: cropW, height: cropH })
+            .raw()
+            .toBuffer();
+        const channels = meta.channels ?? 1;
+        const bytesPerSample = rawBuffer.length / (cropW * cropH * channels);
+        let totalPixels = 0;
+        const samples = [];
+        for (let row = 0; row < cropH; row++) {
+            for (let col = 0; col < cropW; col++) {
+                const geoX = wf.originX + (pxLeft + col + 0.5) * wf.pixelSizeX;
+                const geoY = wf.originY + (pxTop + row + 0.5) * wf.pixelSizeY;
+                if (!this.pointInPolygon(geoX, geoY, ring))
+                    continue;
+                totalPixels++;
+                const i = (row * cropW + col) * channels;
+                let val;
+                if (bytesPerSample === 4)
+                    val = rawBuffer.readFloatLE(i * 4);
+                else if (bytesPerSample === 2)
+                    val = rawBuffer.readUInt16LE(i * 2);
+                else
+                    val = rawBuffer[i];
+                if (!isFinite(val) || isNaN(val) || val <= 4)
+                    continue;
+                samples.push(val);
+            }
+        }
+        return { samples, fullyCovered, totalPixels };
+    }
+    pointInPolygon(x, y, ring) {
+        let inside = false;
+        const n = ring.length;
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const xi = ring[i][0], yi = ring[i][1];
+            const xj = ring[j][0], yj = ring[j][1];
+            if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+                inside = !inside;
+        }
+        return inside;
+    }
+    computeHeightStats(samples, totalPixels) {
+        const forestPixelCount = samples.length;
+        const averageHeight = forestPixelCount > 0 ? samples.reduce((s, v) => s + v, 0) / forestPixelCount : 0;
+        const shares = [10, 15, 20, 25].map((t) => ({
+            threshold: t,
+            percentage: forestPixelCount > 0
+                ? (samples.filter((v) => v > t).length / forestPixelCount) * 100
+                : 0,
+        }));
+        return { averageHeight, forestPixelCount, totalPixelCount: totalPixels, shares };
     }
 };
 exports.CadastreService = CadastreService;

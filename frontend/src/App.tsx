@@ -12,11 +12,19 @@ export interface CadastreInfo {
   bbox: { minX: number; minY: number; maxX: number; maxY: number }
   coordinates: number[][][]
 }
+export interface ForestHeightStats {
+  averageHeight: number
+  forestPixelCount: number
+  totalPixelCount: number
+  shares: { threshold: number; percentage: number }[]
+}
+
 export interface AnalysisResult {
   info: CadastreInfo
   originalImage: string
   clippedImage: string
   tifFiles: string[]
+  heightStats?: ForestHeightStats
 }
 export interface SavedParcel {
   id: string
@@ -306,6 +314,17 @@ export default function App() {
               style={{ fontSize: 14, fontWeight: 500, color: 'var(--mist-dim)', textDecoration: 'none', transition: 'color .15s' }}
               onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
               onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>Metsaregister</a>
+            <button onClick={() => setPage('kinnistud')}
+              style={{ fontSize: 14, fontWeight: 500, color: 'var(--mist-dim)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, transition: 'color .15s', display: 'flex', alignItems: 'center', gap: 6 }}
+              onMouseEnter={e => (e.currentTarget.style.color='var(--mist)')}
+              onMouseLeave={e => (e.currentTarget.style.color='var(--mist-dim)')}>
+              Minu kinnistud
+              {savedParcels.length >= 1 && (
+                <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", background: 'rgba(139,195,74,.18)', border: '1px solid rgba(139,195,74,.35)', color: 'var(--leaf)', borderRadius: 999, padding: '1px 7px', lineHeight: 1.6 }}>
+                  {savedParcels.length}
+                </span>
+              )}
+            </button>
           </div>
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase',
             padding: '7px 14px', borderRadius: 999, border: '1px solid rgba(233,244,225,.22)', color: 'var(--mist-dim)' }}>

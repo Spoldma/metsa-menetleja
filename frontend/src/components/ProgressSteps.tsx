@@ -7,6 +7,7 @@ const STEP_ICONS: Record<string, string> = {
   kaardileht:   '📋',
   tif_download: '⬇️',
   tif_warning:  '⚠️',
+  chm_download: '🌲',
   merging:      '🔗',
   clipping:     '✂️',
   complete:     '✅',

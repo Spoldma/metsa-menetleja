@@ -1,4 +1,4 @@
-import type { AnalysisResult } from '../App'
+import type { AnalysisResult, ForestHeightStats } from '../App'
 
 interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean }
 
@@ -14,7 +14,7 @@ const card: React.CSSProperties = {
 }
 
 export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
-  const { info, originalImage, clippedImage, tifFiles } = result
+  const { info, originalImage, clippedImage, tifFiles, heightStats } = result
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -125,6 +125,63 @@ export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
         </div>
       )}
 
+      {heightStats && <HeightStatsCard stats={heightStats} />}
+    </div>
+  )
+}
+
+function HeightStatsCard({ stats }: { stats: ForestHeightStats }) {
+  const forestPct = stats.totalPixelCount > 0
+    ? (stats.forestPixelCount / stats.totalPixelCount) * 100 : 0
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
+        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
+        </svg>
+        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Metsa kõrgus</h3>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+        <StatBadge label="Keskmine kõrgus" value={`${stats.averageHeight.toFixed(1)} m`} />
+        <StatBadge label="Metsa osakaal" value={`${forestPct.toFixed(1)} %`} subtitle="(kõrgem kui 4 m)" />
+        <StatBadge label="Metsakattega pikslit" value={stats.forestPixelCount.toLocaleString()} subtitle={`/ ${stats.totalPixelCount.toLocaleString()}`} />
+      </div>
+      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
+        textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 14 }}>
+        Osakaal metsakattega alast (kõrgem kui 4 m)
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {stats.shares.map(({ threshold, percentage }) => (
+          <HeightBar key={threshold} threshold={threshold} percentage={percentage} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StatBadge({ label, value, subtitle }: { label: string; value: string; subtitle?: string }) {
+  return (
+    <div style={{ borderRadius: 10, background: 'rgba(10,22,11,.6)', padding: '12px 16px', textAlign: 'center' }}>
+      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
+        textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 4px' }}>{label}</p>
+      <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--mist)', margin: 0 }}>{value}</p>
+      {subtitle && <p style={{ fontSize: 11, color: 'var(--mist-dim)', margin: '2px 0 0' }}>{subtitle}</p>}
+    </div>
+  )
+}
+
+function HeightBar({ threshold, percentage }: { threshold: number; percentage: number }) {
+  const pct = Math.min(100, Math.max(0, percentage))
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist-dim)',
+        width: 54, textAlign: 'right', flexShrink: 0 }}>&gt; {threshold} m</span>
+      <div style={{ flex: 1, borderRadius: 99, background: 'rgba(10,22,11,.6)', height: 18, overflow: 'hidden' }}>
+        <div style={{ height: '100%', borderRadius: 99, width: `${pct}%`,
+          background: 'linear-gradient(90deg, var(--leaf), #5a9a5a)', transition: 'width .7s' }} />
+      </div>
+      <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist)',
+        width: 54, flexShrink: 0 }}>{pct.toFixed(1)} %</span>
     </div>
   )
 }
