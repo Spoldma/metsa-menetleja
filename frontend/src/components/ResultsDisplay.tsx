@@ -1,7 +1,59 @@
 import { useState, useEffect } from 'react'
-import type { AnalysisResult, ForestHeightStats, ResourceData } from '../App'
+import type { AnalysisResult, ForestHeightStats, ResourceData, SpeciesRatios } from '../App'
 
-interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean }
+interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean; speciesRatios: SpeciesRatios | null }
+
+function TreeDetectionCard({ treeCount, treePolygonPlot, clippedImage }: {
+  treeCount: number
+  treePolygonPlot: string
+  clippedImage: string
+}) {
+  return (
+    <div style={{
+      borderRadius: 16,
+      border: '1px solid rgba(139,195,74,.18)',
+      background: 'linear-gradient(180deg, rgba(35,77,39,.28), rgba(13,31,13,.28))',
+      backdropFilter: 'blur(10px)',
+      padding: '28px 32px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
+        </svg>
+        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>
+          Puude tuvastus
+        </h3>
+        <div style={{
+          marginLeft: 'auto',
+          borderRadius: 10, background: 'rgba(10,22,11,.6)', padding: '10px 20px', textAlign: 'center',
+        }}>
+          <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
+            textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 2px' }}>
+            Tuvastatud puud
+          </p>
+          <p style={{ fontSize: 26, fontWeight: 700, color: 'var(--leaf)', margin: 0 }}>
+            {treeCount.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <ImageCard
+          title="Katastriüksus"
+          subtitle="Ortofoto lõige · CIR/NGR"
+          src={`data:image/png;base64,${clippedImage}`}
+          checker
+        />
+        <ImageCard
+          title="Tuvastatud puukroonid"
+          subtitle={`${treeCount.toLocaleString()} puud · polygon mask`}
+          src={`data:image/png;base64,${treePolygonPlot}`}
+          dark
+        />
+      </div>
+    </div>
+  )
+}
 
 function formatArea(m2: number): string {
   return m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`
@@ -14,8 +66,8 @@ const card: React.CSSProperties = {
   backdropFilter: 'blur(10px)',
 }
 
-export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
-  const { info, originalImage, clippedImage, tifFiles, heightStats, resourceFile, resourceCount } = result
+export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios }: Props) {
+  const { info, originalImage, clippedImage, tifFiles, heightStats, resourceFile, resourceCount, treeCount, treePolygonPlot } = result
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -97,6 +149,15 @@ export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
         />
       </div>
 
+      {/* ── Tree detection ── */}
+      {treeCount !== undefined && treePolygonPlot && (
+        <TreeDetectionCard
+          treeCount={treeCount}
+          treePolygonPlot={treePolygonPlot}
+          clippedImage={clippedImage}
+        />
+      )}
+
       {/* ── TIF downloads ── */}
       {tifFiles?.length > 0 && (
         <div style={{ ...card, padding: '22px 28px' }}>
@@ -125,6 +186,8 @@ export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
           </ul>
         </div>
       )}
+
+      <SpeciesCard ratios={speciesRatios} />
 
       {heightStats && <HeightStatsCard stats={heightStats} />}
 
@@ -196,6 +259,79 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
         textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 4 }}>{label}</p>
       <p style={{ fontSize: 14, color: 'var(--mist)', margin: 0,
         fontFamily: mono ? "'IBM Plex Mono',monospace" : 'inherit' }}>{value}</p>
+    </div>
+  )
+}
+
+const SPECIES_CLASSES = [
+  {
+    key: 'conifer' as const,
+    label: 'Okaspuu',
+    gradient: 'linear-gradient(to right, hsl(110,34%,24%), hsl(130,32%,32%), hsl(150,28%,36%))',
+  },
+  {
+    key: 'broadleaf' as const,
+    label: 'Lehtpuu',
+    gradient: 'linear-gradient(to right, hsl(65,52%,38%), hsl(82,48%,42%), hsl(100,42%,40%))',
+  },
+]
+
+function SpeciesCard({ ratios }: { ratios: SpeciesRatios | null }) {
+  const loading = ratios === null
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+            <path d="M12 3 C8 7 4 8 4 14c0 4.4 3.6 8 8 8s8-3.6 8-8c0-6-4-7-8-11zm0 14.5c-2.5 0-4.5-2-4.5-4.5 0-3.5 2-5 4.5-8 2.5 3 4.5 4.5 4.5 8 0 2.5-2 4.5-4.5 4.5z" />
+          </svg>
+          <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Puuliigid</h3>
+        </div>
+        <span style={{
+          fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
+          textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999,
+          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)',
+        }}>
+          {loading ? 'Arvutan...' : 'ortofoto algoritm'}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {SPECIES_CLASSES.map(({ key, label, gradient }) => {
+          const pct = loading ? 0 : Math.round((ratios[key]) * 1000) / 10
+          return (
+            <div key={key}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--mist)' }}>{label}</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: loading ? 'var(--mist-dim)' : 'var(--mist)', fontFamily: "'IBM Plex Mono',monospace" }}>
+                  {loading ? '—' : `${pct.toFixed(1)} %`}
+                </span>
+              </div>
+              <div style={{ borderRadius: 99, background: 'rgba(10,22,11,.6)', height: 14, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 99,
+                  width: loading ? '0%' : `${pct}%`,
+                  background: gradient,
+                  transition: 'width .8s cubic-bezier(.4,0,.2,1)',
+                }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {!loading && ratios.pixelCount > 0 && (
+        <div style={{ marginTop: 24, borderRadius: 99, height: 8, overflow: 'hidden', display: 'flex', gap: 2 }}>
+          {SPECIES_CLASSES.map(({ key, gradient }) => (
+            <div key={key} style={{
+              flex: ratios[key],
+              background: gradient,
+              minWidth: ratios[key] > 0 ? 4 : 0,
+              transition: 'flex .8s cubic-bezier(.4,0,.2,1)',
+            }} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -50,11 +50,14 @@ const common_1 = require("@nestjs/common");
 const path = __importStar(require("path"));
 const rxjs_1 = require("rxjs");
 const cadastre_service_1 = require("./cadastre.service");
+const species_service_1 = require("./species.service");
 const OUTPUT_DIR = path.join(process.cwd(), 'output');
 let CadastreController = class CadastreController {
     cadastreService;
-    constructor(cadastreService) {
+    speciesService;
+    constructor(cadastreService, speciesService) {
         this.cadastreService = cadastreService;
+        this.speciesService = speciesService;
     }
     analyze(code) {
         return this.cadastreService.analyze(code);
@@ -66,6 +69,9 @@ let CadastreController = class CadastreController {
     getResources(filename, res) {
         const safe = path.basename(filename);
         res.sendFile(path.join(OUTPUT_DIR, 'resources', safe));
+    }
+    analyzeSpecies(filename) {
+        return this.speciesService.analyzeSpecies(filename);
     }
 };
 exports.CadastreController = CadastreController;
@@ -92,8 +98,16 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], CadastreController.prototype, "getResources", null);
+__decorate([
+    (0, common_1.Get)('species/:filename'),
+    __param(0, (0, common_1.Param)('filename')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], CadastreController.prototype, "analyzeSpecies", null);
 exports.CadastreController = CadastreController = __decorate([
     (0, common_1.Controller)('cadastre'),
-    __metadata("design:paramtypes", [cadastre_service_1.CadastreService])
+    __metadata("design:paramtypes", [cadastre_service_1.CadastreService,
+        species_service_1.SpeciesService])
 ], CadastreController);
 //# sourceMappingURL=cadastre.controller.js.map
