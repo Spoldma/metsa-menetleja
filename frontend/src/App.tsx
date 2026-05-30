@@ -47,6 +47,50 @@ export interface SpeciesRatios {
   pixelCount: number
 }
 
+export interface LandUseBreakdown {
+  typeCode: string
+  typeName: string
+  areaM2: number
+  areaHa: number
+  pctOfTotal: number
+}
+
+export interface ValuationResult {
+  cadastreId: string
+  address: string
+  areaM2: number
+  areaHa: number
+  county: string
+  municipality: string
+  intendedPurpose: string
+  landUseBreakdown: LandUseBreakdown[]
+  restrictions: string[]
+  option1_taxable: {
+    totalEur: number
+    eurPerHa: number
+    assessedDate: string
+    valuationYear: number
+    note: string
+  }
+  option2_market: {
+    primaryLandUse: string
+    primaryAreaHa: number
+    regionalAvgLowEurPerHa: number
+    regionalAvgHighEurPerHa: number
+    totalLowEur: number
+    totalHighEur: number
+    dataYear: number
+    dataSource: string
+    note: string
+  }
+  valueRangeEur: {
+    floorEur: number
+    marketLowEur: number
+    marketHighEur: number
+    note: string
+  }
+}
+
 export interface SavedParcel {
   id: string
   savedAt: string
@@ -186,6 +230,7 @@ export default function App() {
   const [steps, setSteps] = useState<ProgressStep[]>([])
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [speciesRatios, setSpeciesRatios] = useState<SpeciesRatios | null>(null)
+  const [valuation, setValuation] = useState<ValuationResult | null>(null)
   const [error, setError] = useState('')
   const [inputVal, setInputVal] = useState('')
   const [savedParcels, setSavedParcels] = useState<SavedParcel[]>(loadSaved)
@@ -222,6 +267,7 @@ export default function App() {
     setSteps([])
     setResult(null)
     setSpeciesRatios(null)
+    setValuation(null)
     setError('')
 
     const es = new EventSource(
@@ -244,6 +290,10 @@ export default function App() {
             .then((d: SpeciesRatios) => setSpeciesRatios(d))
             .catch(e => console.error('[species]', e))
         }
+        fetch(`http://localhost:3001/valuation/estimate?code=${encodeURIComponent(trimmed)}`)
+          .then(r => r.json())
+          .then((d: ValuationResult) => setValuation(d))
+          .catch(e => console.error('[valuation]', e))
       }
       if (data.step === 'error') {
         setError(data.message); setPhase('error'); es.close()
@@ -543,7 +593,7 @@ export default function App() {
       {/* ═══════════════════════════ RESULTS ═══════════════════════════════════ */}
       {isDone && (
         <div style={{ background: 'var(--forest-d)', padding: '48px 56px' }} className="animate-fadeIn">
-          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} speciesRatios={speciesRatios} />
+          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} speciesRatios={speciesRatios} valuation={valuation} />
         </div>
       )}
 
