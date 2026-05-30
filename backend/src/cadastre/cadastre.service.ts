@@ -510,7 +510,10 @@ export class CadastreService {
       headers: { 'Content-Type': 'text/xml' },
       responseType: 'text',
       timeout: 15000,
-    }).catch(err => { throw new Error(`WFS (${KAARDILEHT_WFS}): ${err.message}`); });
+    }).catch(err => {
+      console.error(`WFS (${KAARDILEHT_WFS}): ${err.message}`, err.response?.status, err.response?.data);
+      throw new Error(`WFS (${KAARDILEHT_WFS}): ${err.message}`);
+    });
 
     const matches = [...res.data.matchAll(/<[^>:]*:NR_10000[^>]*>([^<]+)<\/[^>:]*:NR_10000>/g)];
     if (!matches.length) throw new Error('Kaardilehte ei leitud katastriüksuse jaoks');

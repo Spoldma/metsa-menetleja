@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import type { AnalysisResult, ForestHeightStats, ResourceData, SpeciesRatios } from '../App'
+import type { AnalysisResult, ForestHeightStats, ResourceData, SpeciesRatios, ValuationResult } from '../App'
 
-interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean; speciesRatios: SpeciesRatios | null }
+interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean; speciesRatios: SpeciesRatios | null; valuation: ValuationResult | null }
 
 function TreeDetectionCard({ treeCount, treePolygonPlot, clippedImage }: {
   treeCount: number
@@ -66,7 +66,7 @@ const card: React.CSSProperties = {
   backdropFilter: 'blur(10px)',
 }
 
-export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios }: Props) {
+export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios, valuation }: Props) {
   const { info, originalImage, clippedImage, tifFiles, heightStats, resourceFile, resourceCount, treeCount, treePolygonPlot } = result
 
   return (
@@ -186,6 +186,8 @@ export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios 
           </ul>
         </div>
       )}
+
+      <ValuationCard valuation={valuation} />
 
       <SpeciesCard ratios={speciesRatios} />
 
@@ -356,6 +358,139 @@ function ImageCard({ title, subtitle, src, dark, checker }: {
         <img src={src} alt={title}
           style={{ maxWidth: '100%', maxHeight: 340, borderRadius: 4, display: 'block' }} />
       </div>
+    </div>
+  )
+}
+
+// ─── Valuation card ───────────────────────────────────────────────────────────
+
+function fmt(n: number) {
+  return n.toLocaleString('et-EE', { maximumFractionDigits: 0 })
+}
+
+function ValuationCard({ valuation }: { valuation: ValuationResult | null }) {
+  const loading = valuation === null
+
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+            <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
+          </svg>
+          <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Krundi ligikaudne väärtus</h2>
+        </div>
+        <span style={{
+          fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
+          textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999,
+          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)',
+        }}>
+          {loading ? 'Arvutan...' : 'MKHIS · kolvikud · WFS'}
+        </span>
+      </div>
+
+      {loading ? (
+        <p style={{ fontSize: 14, color: 'var(--mist-dim)', fontStyle: 'italic', margin: 0 }}>
+          Laen hindamisandmeid…
+        </p>
+      ) : (
+        <>
+          {/* Two-column estimate panels */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+
+            {/* Option 1 */}
+            <div style={{ borderRadius: 12, background: 'rgba(10,22,11,.6)', padding: '20px 22px' }}>
+              <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.16em',
+                textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 6px' }}>
+                Meetod 1 — ametlik põrand
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px', lineHeight: 1.4 }}>
+                Maa maksustamishind
+              </p>
+              <p style={{ fontSize: 34, fontWeight: 700, color: 'var(--leaf)', margin: '0 0 4px',
+                fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '-0.02em' }}>
+                {fmt(valuation.option1_taxable.totalEur)} €
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px',
+                fontFamily: "'IBM Plex Mono',monospace" }}>
+                {fmt(valuation.option1_taxable.eurPerHa)} €/ha
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <MetaRow label="Hindamisaasta" value={String(valuation.option1_taxable.valuationYear)} />
+                <MetaRow label="Kehtib alates" value={valuation.option1_taxable.assessedDate} />
+              </div>
+            </div>
+
+            {/* Option 2 */}
+            <div style={{ borderRadius: 12, background: 'rgba(10,22,11,.6)', padding: '20px 22px' }}>
+              <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.16em',
+                textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 6px' }}>
+                Meetod 2 — turustatistika
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px', lineHeight: 1.4 }}>
+                Piirkondlik võrdlushind
+              </p>
+              <p style={{ fontSize: 34, fontWeight: 700, color: 'var(--mist)', margin: '0 0 4px',
+                fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '-0.02em' }}>
+                {fmt(valuation.option2_market.totalLowEur)} – {fmt(valuation.option2_market.totalHighEur)} €
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px',
+                fontFamily: "'IBM Plex Mono',monospace" }}>
+                {fmt(valuation.option2_market.regionalAvgLowEurPerHa)} – {fmt(valuation.option2_market.regionalAvgHighEurPerHa)} €/ha
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <MetaRow label="Piirkond" value={valuation.county} />
+                <MetaRow label="Maakasutus" value={valuation.option2_market.primaryLandUse} />
+                <MetaRow label="Andmeaasta" value={String(valuation.option2_market.dataYear)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Restrictions + metadata */}
+          <div style={{ marginTop: 16 }}>
+            <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.16em',
+              textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 10px' }}>
+              Kitsendused (avalik kiht)
+            </p>
+            {valuation.restrictions.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: 0 }}>Kitsendusi ei tuvastatud</p>
+            ) : (
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {valuation.restrictions.map(r => (
+                  <li key={r} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f4a261', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: 'var(--mist)' }}>{r}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div style={{ marginTop: 14 }}>
+              <MetaRow label="Sihtotstarve" value={valuation.intendedPurpose} />
+              <MetaRow label="Vald / linn" value={valuation.municipality} />
+            </div>
+          </div>
+
+          {/* Disclaimer */}
+          <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", color: 'rgba(197,216,189,.45)',
+            marginTop: 20, lineHeight: 1.6, margin: '20px 0 0' }}>
+            Meetod 1 (maksustamishind) on ametlik massihindamise tulemus — tavaliselt alla turuhinna.
+            Meetod 2 põhineb Maa-ameti maakondlikul tehingustatistikal (2023) ja ei sisalda puidu väärtust.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ fontSize: 12, color: 'var(--mist-dim)' }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'var(--mist)', fontFamily: "'IBM Plex Mono',monospace",
+        textAlign: 'right', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {value}
+      </span>
     </div>
   )
 }

@@ -54,7 +54,7 @@ const cheerio_1 = require("cheerio");
 const unzipper = __importStar(require("unzipper"));
 const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
 const WMS_BASE = 'https://kaart.maaamet.ee/wms/alus?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
-const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
+const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/1kk6m14';
 const GEOPORTAL_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
 const GEOPORTAL_CHM_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
 const MAARDLAD_EXPORT = 'https://xgis.maaamet.ee/xgis2/export';
@@ -388,7 +388,10 @@ let CadastreService = class CadastreService {
             headers: { 'Content-Type': 'text/xml' },
             responseType: 'text',
             timeout: 15000,
-        }).catch(err => { throw new Error(`WFS (${KAARDILEHT_WFS}): ${err.message}`); });
+        }).catch(err => {
+            console.error(`WFS (${KAARDILEHT_WFS}): ${err.message}`, err.response?.status, err.response?.data);
+            throw new Error(`WFS (${KAARDILEHT_WFS}): ${err.message}`);
+        });
         const matches = [...res.data.matchAll(/<[^>:]*:NR_10000[^>]*>([^<]+)<\/[^>:]*:NR_10000>/g)];
         if (!matches.length)
             throw new Error('Kaardilehte ei leitud katastriüksuse jaoks');
