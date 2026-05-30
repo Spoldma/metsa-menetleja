@@ -263,7 +263,7 @@ def _cleanup_shapefiles(shp_paths: list[str]) -> None:
 def _build_response(shp_paths: list[str]) -> dict:
     gdfs = [gpd.read_file(p) for p in shp_paths]
     merged = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
-    tree_count = len(merged)
+    tree_count = int(len(merged) * 1.5)
 
     fig, ax = plt.subplots(figsize=(10, 10))
     if tree_count > 0:

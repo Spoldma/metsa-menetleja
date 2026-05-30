@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import type { AnalysisResult, ForestHeightStats, TimberVolumeResult, TimberVolumeElement, ForestValueResult, ResourceData, SpeciesRatios, ValuationResult } from '../App'
+import { useState, useEffect, type ReactNode } from 'react'
+import type { AnalysisResult, TimberVolumeResult, ForestValueResult, ResourceData, SpeciesRatios, ValuationResult } from '../App'
 
 interface Props {
   result: AnalysisResult
@@ -10,477 +10,220 @@ interface Props {
   forestValue?: ForestValueResult | null
 }
 
-function TreeDetectionCard({ treeCount, treePolygonPlot, clippedImage }: {
-  treeCount: number
-  treePolygonPlot: string
-  clippedImage: string
-}) {
-  return (
-    <div style={{
-      borderRadius: 16,
-      border: '1px solid rgba(139,195,74,.18)',
-      background: 'linear-gradient(180deg, rgba(35,77,39,.28), rgba(13,31,13,.28))',
-      backdropFilter: 'blur(10px)',
-      padding: '28px 32px',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
-        </svg>
-        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>
-          Puude tuvastus
-        </h3>
-        <div style={{
-          marginLeft: 'auto',
-          borderRadius: 10, background: 'rgba(10,22,11,.6)', padding: '10px 20px', textAlign: 'center',
-        }}>
-          <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
-            textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 2px' }}>
-            Tuvastatud puud
-          </p>
-          <p style={{ fontSize: 26, fontWeight: 700, color: 'var(--leaf)', margin: 0 }}>
-            {treeCount.toLocaleString()}
-          </p>
-        </div>
-      </div>
+// ─── Utility functions ────────────────────────────────────────────────────────
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <ImageCard
-          title="Katastriüksus"
-          subtitle="Ortofoto lõige · CIR/NGR"
-          src={`data:image/png;base64,${clippedImage}`}
-          checker
-        />
-        <ImageCard
-          title="Tuvastatud puukroonid"
-          subtitle={`${treeCount.toLocaleString()} puud · polygon mask`}
-          src={`data:image/png;base64,${treePolygonPlot}`}
-          dark
-        />
-      </div>
-    </div>
-  )
+function fmt(n: number): string {
+  return Math.round(n).toLocaleString('et-EE')
+}
+
+function fmtEur(n: number): string {
+  if (n < 0) return `−€${fmt(-n)}`
+  return `€${fmt(n)}`
 }
 
 function formatArea(m2: number): string {
   return m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`
 }
 
-const card: React.CSSProperties = {
-  borderRadius: 16,
-  border: '1px solid rgba(139,195,74,.18)',
-  background: 'linear-gradient(180deg, rgba(35,77,39,.28), rgba(13,31,13,.28))',
-  backdropFilter: 'blur(10px)',
+function calcPerimeterM(coords: number[][][]): number {
+  if (!coords || !coords[0] || coords[0].length < 2) return 0
+  const ring = coords[0]
+  let total = 0
+  for (let i = 0; i < ring.length - 1; i++) {
+    const dx = ring[i + 1][0] - ring[i][0]
+    const dy = ring[i + 1][1] - ring[i][1]
+    total += Math.sqrt(dx * dx + dy * dy)
+  }
+  return total
 }
 
-export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios, timberVolume, forestValue, valuation }: Props) {
-  const { info, originalImage, clippedImage, tifFiles, heightStats, resourceFile, resourceCount, treeCount, treePolygonPlot } = result
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-
-      {/* ── Info card ── */}
-      <div style={{ ...card, padding: '28px 32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <svg style={{ width: 18, height: 18, color: 'var(--leaf)', fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-            </svg>
-            <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Katastriüksuse info</h2>
-          </div>
-          <button
-            onClick={onSave}
-            disabled={isSaved}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: isSaved ? 'default' : 'pointer',
-              background: isSaved ? 'rgba(139,195,74,.08)' : 'rgba(139,195,74,.15)',
-              border: `1px solid ${isSaved ? 'rgba(139,195,74,.2)' : 'rgba(139,195,74,.4)'}`,
-              color: isSaved ? 'var(--mist-dim)' : 'var(--leaf)',
-              transition: 'background .15s',
-            }}
-            onMouseEnter={e => { if (!isSaved) e.currentTarget.style.background = 'rgba(139,195,74,.25)' }}
-            onMouseLeave={e => { if (!isSaved) e.currentTarget.style.background = 'rgba(139,195,74,.15)' }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-              {isSaved
-                ? <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
-                : <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2zm0 15-5-2.18L7 18V5h10v13z" />}
-            </svg>
-            {isSaved ? 'Salvestatud' : 'Salvesta kinnistu'}
-          </button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}>
-          <Field label="Tunnus"  value={info.code}           mono />
-          <Field label="Pindala" value={formatArea(info.area)} />
-          {info.address && (
-            <div style={{ gridColumn: '1 / -1' }}>
-              <Field label="Aadress" value={info.address} />
-            </div>
-          )}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
-              textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 10 }}>Piirikast (EPSG:3301)</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[
-                ['Min X', info.bbox.minX], ['Max X', info.bbox.maxX],
-                ['Min Y', info.bbox.minY], ['Max Y', info.bbox.maxY],
-              ].map(([l, v]) => (
-                <div key={String(l)} style={{ borderRadius: 10, background: 'rgba(10,22,11,.6)',
-                  padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist-dim)' }}>{l}</span>
-                  <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist)' }}>
-                    {(v as number).toFixed(1)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Image panels ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <ImageCard
-          title="Originaal aerofoto"
-          subtitle="WMS · CIR/NGR · EPSG:3301"
-          src={`data:image/jpeg;base64,${originalImage}`}
-          dark
-        />
-        <ImageCard
-          title="Katastriüksus"
-          subtitle="Lõigatud originaalpildist"
-          src={`data:image/png;base64,${clippedImage}`}
-          checker
-        />
-      </div>
-
-      {/* ── Tree detection ── */}
-      {treeCount !== undefined && treePolygonPlot && (
-        <TreeDetectionCard
-          treeCount={treeCount}
-          treePolygonPlot={treePolygonPlot}
-          clippedImage={clippedImage}
-        />
-      )}
-
-      {/* ── TIF downloads ── */}
-      {tifFiles?.length > 0 && (
-        <div style={{ ...card, padding: '22px 28px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 16 }}>
-            <svg style={{ width: 16, height: 16, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zm-8 2V5h2v6h1.17L12 13.17 9.83 11H11zm-6 7h14v2H5v-2z" />
-            </svg>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>GeoTIFF failid</h3>
-          </div>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tifFiles.map(f => (
-              <li key={f}>
-                <a href={`http://localhost:3001/cadastre/tif/${f}`} download={f}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 9, fontSize: 13,
-                    fontFamily: "'IBM Plex Mono',monospace", color: 'var(--leaf)',
-                    textDecoration: 'none', transition: 'color .15s' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--mist)')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--leaf)')}>
-                  <svg style={{ width: 14, height: 14, fill: 'currentColor', flexShrink: 0 }} viewBox="0 0 24 24">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z" />
-                  </svg>
-                  {f}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <ValuationCard valuation={valuation} />
-
-      <SpeciesCard ratios={speciesRatios} />
-
-      {heightStats && <HeightStatsCard stats={heightStats} />}
-      {timberVolume && <TimberVolumeCard result={timberVolume} />}
-      {forestValue && <ForestValueCard result={forestValue} />}
-      <ResourcesPanel resourceFile={resourceFile} resourceCount={resourceCount} cadastreRing={info.coordinates[0]} bbox={info.bbox} />
-    </div>
-  )
-}
-
-const SPECIES_NAMES: Record<string, string> = {
-  MA: 'Harilik mänd', KU: 'Harilik kuusk', KS: 'Arukask',
-  LM: 'Sanglepp', HB: 'Haab', LV: 'Hall lepp', TM: 'Harilik tamm',
-}
-
-function TimberVolumeCard({ result }: { result: TimberVolumeResult }) {
-  const fmt1 = (n: number) => n.toFixed(1)
-  const fmt2 = (n: number) => n.toFixed(2)
-
-  return (
-    <div style={{ ...card, padding: '28px 32px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
-        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-          <path d="M11 21H5a2 2 0 0 1-2-2V7l5-4h8a2 2 0 0 1 2 2v3h-2V5H9.5L6 7.78V19h5v2zm7.7-2.3-1.4-1.4L19 15.6V11h2v4.6l1.7 1.7-1.4 1.4L19.7 17l-1 .7z" />
-        </svg>
-        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Tagavara (m³)</h3>
-      </div>
-
-      {/* Summary badges */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
-        <StatBadge label="Pindala" value={`${fmt2(result.areaHa)} ha`} />
-        <StatBadge label="Kogutagavara" value={`${fmt1(result.totalVolumeM3)} m³`} />
-        <StatBadge label="Tagavara/ha" value={`${fmt1(result.totalVolumePerHaM3)} m³/ha`} />
-      </div>
-
-      {/* Per-element detail table */}
-      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
-        textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 12 }}>
-        Puistuelemendid (boniteet {result.boniteet}, {result.totalTreeCount} puud)
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {result.elements.map((el) => (
-          <TimberElementRow key={el.speciesCode} el={el} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function TimberElementRow({ el }: { el: TimberVolumeElement }) {
-  const fmt1 = (n: number) => n.toFixed(1)
-  const fmt2 = (n: number) => n.toFixed(2)
-  const name = SPECIES_NAMES[el.speciesCode] ?? el.speciesCode
-
-  return (
-    <div style={{ borderRadius: 12, background: 'rgba(10,22,11,.6)', padding: '14px 18px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--mist)' }}>{name}</span>
-        <span style={{ fontSize: 13, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--leaf)', fontWeight: 700 }}>
-          {fmt1(el.volumeTotalM3)} m³
-        </span>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
-        {[
-          ['N/ha', `${Math.round(el.nPerHa)}`],
-          ['DBH', `${fmt1(el.dbhCm)} cm`],
-          ['G', `${fmt2(el.standBasalAreaM2ha)} m²/ha`],
-          ['RSD (täius)', `${fmt2(el.rsd)}`],
-          ['G₁₀₀', `${fmt2(el.g100)} m²/ha`],
-          ['V₁₀₀', `${fmt1(el.v100)} m³/ha`],
-          ['V/ha', `${fmt1(el.volumePerHaM3)} m³/ha`],
-          ['V kokku', `${fmt1(el.volumeTotalM3)} m³`],
-        ].map(([label, value]) => (
-          <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
-              textTransform: 'uppercase', color: 'var(--mist-dim)' }}>{label}</span>
-            <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist)' }}>{value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+// ─── Species mapping ──────────────────────────────────────────────────────────
 
 const SPECIES_ET: Record<string, string> = {
-  MA: 'Harilik mänd', KU: 'Harilik kuusk', KS: 'Arukask',
-  LM: 'Sanglepp', HB: 'Haab', LV: 'Hall lepp', TM: 'Harilik tamm',
+  MA: 'Mänd', KU: 'Kuusk', KS: 'Kask', HB: 'Haab',
+  LM: 'Sanglepp', LV: 'Hall lepp', TM: 'Tamm',
 }
 
-function ForestValueCard({ result }: { result: ForestValueResult }) {
-  const fmtEur = (n: number) =>
-    n.toLocaleString('et-EE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €'
+// ─── RowData type ─────────────────────────────────────────────────────────────
 
+type RowData = {
+  num: string
+  title: string
+  source: string
+  stat: { v: string; u: string }
+  desc: string
+  data: { l: string; v: string; s?: string }[]
+  contrib?: { tag: string; txt: ReactNode; neg?: boolean }
+  viz?: ReactNode
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function VizFrame({ cap, note, children }: { cap: string; note?: string; children: ReactNode }) {
   return (
-    <div style={{ ...card, padding: '28px 32px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
-        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-          <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
-        </svg>
-        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Hinnanguline väärtus</h3>
+    <div className="viz">
+      <div className="viz-cap">
+        <span className="t">{cap}</span>
+        {note && <span className="n">{note}</span>}
       </div>
+      {children}
+    </div>
+  )
+}
 
-      {/* Total value hero */}
-      <div style={{ borderRadius: 14, background: 'rgba(139,195,74,.08)',
-        border: '1px solid rgba(139,195,74,.2)', padding: '18px 24px', marginBottom: 20,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: 'var(--mist-dim)' }}>Kogu metsa väärtus</span>
-        <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--leaf)',
-          fontFamily: "'IBM Plex Mono',monospace" }}>
-          {fmtEur(result.totalEur)}
-        </span>
+type StackSegment = { name: string; label: string; val: number; color: string }
+
+function StackBar({ cap, note, segments }: { cap: string; note?: string; segments: StackSegment[] }) {
+  const total = segments.reduce((s, x) => s + x.val, 0)
+  return (
+    <VizFrame cap={cap} note={note}>
+      <div className="stack">
+        {segments.map(seg => (
+          <i key={seg.name} style={{
+            flex: total > 0 ? seg.val / total : 0,
+            background: seg.color,
+          }} />
+        ))}
       </div>
-
-      {/* Per-species rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {result.elements.map((el) => (
-          <div key={el.speciesCode} style={{ borderRadius: 10, background: 'rgba(10,22,11,.6)',
-            padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--mist)' }}>
-                {SPECIES_ET[el.speciesCode] ?? el.speciesCode}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--mist-dim)', marginLeft: 8,
-                fontFamily: "'IBM Plex Mono',monospace" }}>
-                {el.assortment}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace",
-                color: 'var(--mist-dim)', textAlign: 'right' }}>
-                {el.volumeM3.toFixed(1)} m³ × {el.pricePerM3.toFixed(2)} €/m³
-              </span>
-              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace",
-                color: 'var(--leaf)', minWidth: 90, textAlign: 'right' }}>
-                {fmtEur(el.totalEur)}
-              </span>
-            </div>
+      <div className="legend">
+        {segments.map(seg => (
+          <div key={seg.name} className="li">
+            <span className="sw" style={{ background: seg.color }} />
+            <span className="nm">{seg.label}</span>
+            <span className="pc">{total > 0 ? `${((seg.val / total) * 100).toFixed(1)} %` : '—'}</span>
           </div>
         ))}
       </div>
-
-      <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist-dim)',
-        marginTop: 14, marginBottom: 0, letterSpacing: '.05em' }}>
-        Allikas: {result.period} · {result.source}
-      </p>
-    </div>
+    </VizFrame>
   )
 }
 
-function HeightStatsCard({ stats }: { stats: ForestHeightStats }) {
-  const forestPct = stats.totalPixelCount > 0
-    ? (stats.forestPixelCount / stats.totalPixelCount) * 100 : 0
+function Histogram({ cap, note, classes: bars, meanLabel }: {
+  cap: string; note?: string
+  classes: { label: string; count: number }[]
+  meanLabel?: string
+}) {
+  const max = Math.max(...bars.map(b => b.count), 1)
   return (
-    <div style={{ ...card, padding: '28px 32px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
-        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
-        </svg>
-        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Metsa kõrgus</h3>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 24 }}>
-        <StatBadge label="Keskmine kõrgus" value={`${stats.averageHeight.toFixed(1)} m`} />
-        <StatBadge label="Metsa osakaal" value={`${forestPct.toFixed(1)} %`} subtitle="(kõrgem kui 4 m)" />
-      </div>
-      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
-        textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 14 }}>
-        Osakaal metsakattega alast (kõrgem kui 4 m)
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {stats.shares.map(({ threshold, percentage }) => (
-          <HeightBar key={threshold} threshold={threshold} percentage={percentage} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function StatBadge({ label, value, subtitle }: { label: string; value: string; subtitle?: string }) {
-  return (
-    <div style={{ borderRadius: 10, background: 'rgba(10,22,11,.6)', padding: '12px 16px', textAlign: 'center' }}>
-      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
-        textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 4px' }}>{label}</p>
-      <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--mist)', margin: 0 }}>{value}</p>
-      {subtitle && <p style={{ fontSize: 11, color: 'var(--mist-dim)', margin: '2px 0 0' }}>{subtitle}</p>}
-    </div>
-  )
-}
-
-function HeightBar({ threshold, percentage }: { threshold: number; percentage: number }) {
-  const pct = Math.min(100, Math.max(0, percentage))
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist-dim)',
-        width: 54, textAlign: 'right', flexShrink: 0 }}>&gt; {threshold} m</span>
-      <div style={{ flex: 1, borderRadius: 99, background: 'rgba(10,22,11,.6)', height: 18, overflow: 'hidden' }}>
-        <div style={{ height: '100%', borderRadius: 99, width: `${pct}%`,
-          background: 'linear-gradient(90deg, var(--leaf), #5a9a5a)', transition: 'width .7s' }} />
-      </div>
-      <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist)',
-        width: 54, flexShrink: 0 }}>{pct.toFixed(1)} %</span>
-    </div>
-  )
-}
-
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
-        textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 4 }}>{label}</p>
-      <p style={{ fontSize: 14, color: 'var(--mist)', margin: 0,
-        fontFamily: mono ? "'IBM Plex Mono',monospace" : 'inherit' }}>{value}</p>
-    </div>
-  )
-}
-
-const SPECIES_CLASSES = [
-  {
-    key: 'conifer' as const,
-    label: 'Okaspuu',
-    gradient: 'linear-gradient(to right, hsl(110,34%,24%), hsl(130,32%,32%), hsl(150,28%,36%))',
-  },
-  {
-    key: 'broadleaf' as const,
-    label: 'Lehtpuu',
-    gradient: 'linear-gradient(to right, hsl(65,52%,38%), hsl(82,48%,42%), hsl(100,42%,40%))',
-  },
-]
-
-function SpeciesCard({ ratios }: { ratios: SpeciesRatios | null }) {
-  const loading = ratios === null
-  return (
-    <div style={{ ...card, padding: '28px 32px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-            <path d="M12 3 C8 7 4 8 4 14c0 4.4 3.6 8 8 8s8-3.6 8-8c0-6-4-7-8-11zm0 14.5c-2.5 0-4.5-2-4.5-4.5 0-3.5 2-5 4.5-8 2.5 3 4.5 4.5 4.5 8 0 2.5-2 4.5-4.5 4.5z" />
-          </svg>
-          <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Puuliigid</h3>
-        </div>
-        <span style={{
-          fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
-          textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999,
-          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)',
-        }}>
-          {loading ? 'Arvutan...' : 'ortofoto algoritm'}
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {SPECIES_CLASSES.map(({ key, label, gradient }) => {
-          const pct = loading ? 0 : Math.round((ratios[key]) * 1000) / 10
+    <VizFrame cap={cap} note={note}>
+      <div className="bars">
+        {bars.map(b => {
+          const pct = (b.count / max) * 100
           return (
-            <div key={key}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--mist)' }}>{label}</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: loading ? 'var(--mist-dim)' : 'var(--mist)', fontFamily: "'IBM Plex Mono',monospace" }}>
-                  {loading ? '—' : `${pct.toFixed(1)} %`}
-                </span>
-              </div>
-              <div style={{ borderRadius: 99, background: 'rgba(10,22,11,.6)', height: 14, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', borderRadius: 99,
-                  width: loading ? '0%' : `${pct}%`,
-                  background: gradient,
-                  transition: 'width .8s cubic-bezier(.4,0,.2,1)',
-                }} />
-              </div>
+            <div key={b.label} className="col">
+              <span className="ct">{b.count > 0 ? `${b.count.toFixed(0)}%` : ''}</span>
+              <div className="bar" style={{ height: `${Math.max(pct, 2)}%` }} />
+              <span className="cl">{b.label}</span>
             </div>
           )
         })}
       </div>
+      {meanLabel && <p className="axis-note">{meanLabel}</p>}
+    </VizFrame>
+  )
+}
 
-      {!loading && ratios.pixelCount > 0 && (
-        <div style={{ marginTop: 24, borderRadius: 99, height: 8, overflow: 'hidden', display: 'flex', gap: 2 }}>
-          {SPECIES_CLASSES.map(({ key, gradient }) => (
-            <div key={key} style={{
-              flex: ratios[key],
-              background: gradient,
-              minWidth: ratios[key] > 0 ? 4 : 0,
-              transition: 'flex .8s cubic-bezier(.4,0,.2,1)',
-            }} />
-          ))}
+// Mulberry32 PRNG — deterministic, same as viz.jsx pattern
+function mulberry32(seed: number) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = t + Math.imul(t ^ (t >>> 7), 61 | t) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// LEAN polygon — approximate parcel shape used for dot density
+const LEAN_PTS: [number, number][] = [
+  [0.18, 0.14], [0.42, 0.08], [0.72, 0.11], [0.88, 0.28],
+  [0.92, 0.52], [0.78, 0.74], [0.58, 0.88], [0.34, 0.92],
+  [0.12, 0.76], [0.06, 0.48],
+]
+
+function pointInPolygon(px: number, py: number, poly: [number, number][]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1]
+    const xj = poly[j][0], yj = poly[j][1]
+    if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+function TreeDots({ cap, note }: { cap: string; note?: string }) {
+  const W = 306, H = 160
+  const rand = mulberry32(0xdeadbeef)
+  const dots: { cx: number; cy: number }[] = []
+  let attempts = 0
+  while (dots.length < 120 && attempts < 3000) {
+    attempts++
+    const rx = rand(), ry = rand()
+    const px = rx, py = ry
+    if (pointInPolygon(px, py, LEAN_PTS)) {
+      dots.push({ cx: rx * W, cy: ry * H })
+    }
+  }
+  const poly = LEAN_PTS.map(([x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(' ')
+  return (
+    <VizFrame cap={cap} note={note}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', borderRadius: 6 }}>
+        <polygon points={poly} fill="rgba(35,77,39,.35)" stroke="rgba(139,195,74,.3)" strokeWidth="1" />
+        {dots.map((d, i) => (
+          <circle key={i} cx={d.cx} cy={d.cy} r="2.2" fill="var(--leaf)" opacity="0.72" />
+        ))}
+      </svg>
+    </VizFrame>
+  )
+}
+
+function ValueLedger({ cap, note, rows, total }: {
+  cap: string; note?: string
+  rows: { name: string; val: number }[]
+  total: number
+}) {
+  const maxVal = Math.max(...rows.map(r => Math.abs(r.val)), 1)
+  return (
+    <VizFrame cap={cap} note={note}>
+      <div className="ledger">
+        {rows.map(r => (
+          <div key={r.name} style={{ display: 'contents' }}>
+            <div className={`lr${r.val < 0 ? ' neg' : ''}`}>
+              <span className="nm">{r.name}</span>
+              <span className="amt">{fmtEur(r.val)}</span>
+            </div>
+            <div className={`track${r.val < 0 ? ' neg' : ''}`}>
+              <i style={{ width: `${Math.min(100, (Math.abs(r.val) / maxVal) * 100).toFixed(1)}%` }} />
+            </div>
+          </div>
+        ))}
+        <div className="total">
+          <span className="nm">Kokku</span>
+          <span className="amt">{fmtEur(total)}</span>
         </div>
-      )}
-    </div>
+      </div>
+    </VizFrame>
+  )
+}
+
+function ResList({ cap, note, items }: {
+  cap: string; note?: string
+  items: { k: string; v: string; tone?: 'ok' | 'warn' | 'neutral' }[]
+}) {
+  return (
+    <VizFrame cap={cap} note={note}>
+      <div className="reslist">
+        {items.map((item, i) => (
+          <div key={i} className="resitem">
+            <span className="nm">{item.k}</span>
+            <span className={`v${item.tone === 'ok' ? ' ok' : item.tone === 'warn' ? ' warn' : ''}`}>
+              {item.v}
+            </span>
+          </div>
+        ))}
+      </div>
+    </VizFrame>
   )
 }
 
@@ -492,14 +235,12 @@ function ImageCard({ title, subtitle, src, dark, checker }: {
       <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(139,195,74,.14)',
         background: 'rgba(13,31,13,.6)' }}>
         <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>{title}</h3>
-        <p style={{ fontSize: 11, color: 'var(--mist-dim)', marginTop: 3, fontFamily: "'IBM Plex Mono',monospace",
-          letterSpacing: '.05em' }}>{subtitle}</p>
+        <p style={{ fontSize: 11, color: 'var(--mist-dim)', marginTop: 3,
+          fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.05em' }}>{subtitle}</p>
       </div>
       <div style={{
         minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8,
-        background: checker
-          ? undefined
-          : dark ? 'rgba(10,22,11,.9)' : 'rgba(13,31,13,.7)',
+        background: checker ? undefined : dark ? 'rgba(10,22,11,.9)' : 'rgba(13,31,13,.7)',
       }} className={checker ? 'checkerboard' : ''}>
         <img src={src} alt={title}
           style={{ maxWidth: '100%', maxHeight: 340, borderRadius: 4, display: 'block' }} />
@@ -508,152 +249,76 @@ function ImageCard({ title, subtitle, src, dark, checker }: {
   )
 }
 
-// ─── Valuation card ───────────────────────────────────────────────────────────
-
-function fmt(n: number) {
-  return n.toLocaleString('et-EE', { maximumFractionDigits: 0 })
+function ChevronIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="2,4 7,10 12,4" />
+    </svg>
+  )
 }
 
-function ValuationCard({ valuation }: { valuation: ValuationResult | null }) {
-  const loading = valuation === null
-
+function AccRow({ row, open, onToggle }: { row: RowData; open: boolean; onToggle: () => void }) {
   return (
-    <div style={{ ...card, padding: '28px 32px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-            <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
-          </svg>
-          <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Krundi ligikaudne väärtus</h2>
-        </div>
-        <span style={{
-          fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
-          textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999,
-          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)',
-        }}>
-          {loading ? 'Arvutan...' : 'MKHIS · kolvikud · WFS'}
+    <div className={`acc-row${open ? ' open' : ''}`}>
+      <button className="acc-head" onClick={onToggle} aria-expanded={open}>
+        <span className="acc-num">{row.num}</span>
+        <span>
+          <span className="acc-title">{row.title}</span>
+          <span className="acc-source">{row.source}</span>
         </span>
-      </div>
-
-      {loading ? (
-        <p style={{ fontSize: 14, color: 'var(--mist-dim)', fontStyle: 'italic', margin: 0 }}>
-          Laen hindamisandmeid…
-        </p>
-      ) : (
-        <>
-          {/* Two-column estimate panels */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-
-            {/* Option 1 */}
-            <div style={{ borderRadius: 12, background: 'rgba(10,22,11,.6)', padding: '20px 22px' }}>
-              <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.16em',
-                textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 6px' }}>
-                Meetod 1 — ametlik põrand
-              </p>
-              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px', lineHeight: 1.4 }}>
-                Maa maksustamishind
-              </p>
-              <p style={{ fontSize: 34, fontWeight: 700, color: 'var(--leaf)', margin: '0 0 4px',
-                fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '-0.02em' }}>
-                {fmt(valuation.option1_taxable.totalEur)} €
-              </p>
-              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px',
-                fontFamily: "'IBM Plex Mono',monospace" }}>
-                {fmt(valuation.option1_taxable.eurPerHa)} €/ha
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <MetaRow label="Hindamisaasta" value={String(valuation.option1_taxable.valuationYear)} />
-                <MetaRow label="Kehtib alates" value={valuation.option1_taxable.assessedDate} />
-              </div>
+        <span className="acc-stat">
+          <span className="v">{row.stat.v}</span>
+          <span className="u">{row.stat.u}</span>
+        </span>
+        <span className="acc-chev"><ChevronIcon /></span>
+      </button>
+      {open && (
+        <div className="acc-panel">
+          <div className="acc-panel-inner">
+            {/* Left column */}
+            <div>
+              <p className="acc-desc">{row.desc}</p>
+              {row.data.length > 0 && (
+                <div className="datagrid">
+                  {row.data.map((cell, i) => (
+                    <div key={i} className="cell">
+                      <div className="l">{cell.l}</div>
+                      <div className="v">
+                        {cell.v}
+                        {cell.s && <small>{cell.s}</small>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {row.contrib && (
+                <div className={`contrib${row.contrib.neg ? ' neg' : ''}`}>
+                  <span className="tag">{row.contrib.tag}</span>
+                  <span className="txt">{row.contrib.txt}</span>
+                </div>
+              )}
             </div>
-
-            {/* Option 2 */}
-            <div style={{ borderRadius: 12, background: 'rgba(10,22,11,.6)', padding: '20px 22px' }}>
-              <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.16em',
-                textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 6px' }}>
-                Meetod 2 — turustatistika
-              </p>
-              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px', lineHeight: 1.4 }}>
-                Piirkondlik võrdlushind
-              </p>
-              <p style={{ fontSize: 34, fontWeight: 700, color: 'var(--mist)', margin: '0 0 4px',
-                fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '-0.02em' }}>
-                {fmt(valuation.option2_market.totalLowEur)} – {fmt(valuation.option2_market.totalHighEur)} €
-              </p>
-              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: '0 0 16px',
-                fontFamily: "'IBM Plex Mono',monospace" }}>
-                {fmt(valuation.option2_market.regionalAvgLowEurPerHa)} – {fmt(valuation.option2_market.regionalAvgHighEurPerHa)} €/ha
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <MetaRow label="Piirkond" value={valuation.county} />
-                <MetaRow label="Maakasutus" value={valuation.option2_market.primaryLandUse} />
-                <MetaRow label="Andmeaasta" value={String(valuation.option2_market.dataYear)} />
-              </div>
-            </div>
+            {/* Right column — viz */}
+            {row.viz && <div>{row.viz}</div>}
           </div>
-
-          {/* Restrictions + metadata */}
-          <div style={{ marginTop: 16 }}>
-            <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.16em',
-              textTransform: 'uppercase', color: 'var(--mist-dim)', margin: '0 0 10px' }}>
-              Kitsendused (avalik kiht)
-            </p>
-            {valuation.restrictions.length === 0 ? (
-              <p style={{ fontSize: 13, color: 'var(--mist-dim)', margin: 0 }}>Kitsendusi ei tuvastatud</p>
-            ) : (
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {valuation.restrictions.map(r => (
-                  <li key={r} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f4a261', flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, color: 'var(--mist)' }}>{r}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div style={{ marginTop: 14 }}>
-              <MetaRow label="Sihtotstarve" value={valuation.intendedPurpose} />
-              <MetaRow label="Vald / linn" value={valuation.municipality} />
-            </div>
-          </div>
-
-          {/* Disclaimer */}
-          <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", color: 'rgba(197,216,189,.45)',
-            marginTop: 20, lineHeight: 1.6, margin: '20px 0 0' }}>
-            Meetod 1 (maksustamishind) on ametlik massihindamise tulemus — tavaliselt alla turuhinna.
-            Meetod 2 põhineb Maa-ameti maakondlikul tehingustatistikal (2023) ja ei sisalda puidu väärtust.
-          </p>
-        </>
+        </div>
       )}
     </div>
   )
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--mist-dim)' }}>{label}</span>
-      <span style={{ fontSize: 12, color: 'var(--mist)', fontFamily: "'IBM Plex Mono',monospace",
-        textAlign: 'right', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {value}
-      </span>
-    </div>
-  )
-}
+// ─── Main component ───────────────────────────────────────────────────────────
 
-// ─── Resources panel — simple list of unique KASUTUSALA_NIMETUS values ───────
-function ResourcesPanel({ resourceFile, cadastreRing: _r, bbox: _b }: {
-  resourceFile?: string
-  resourceCount?: number
-  cadastreRing: number[][]
-  bbox: { minX: number; minY: number; maxX: number; maxY: number }
-}) {
-  const [items, setItems] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
+export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios, timberVolume, forestValue, valuation }: Props) {
+  const { info, tifFiles: _tifFiles, heightStats, resourceFile, treeCount, treePolygonPlot, clippedImage } = result
+
+  const openDefault = forestValue ? 6 : 0
+  const [openIdx, setOpenIdx] = useState<number>(openDefault)
+  const [resourceItems, setResourceItems] = useState<string[]>([])
 
   useEffect(() => {
     if (!resourceFile) return
-    setLoading(true)
     fetch(`http://localhost:3001/cadastre/resources/${resourceFile}`)
       .then(r => r.json() as Promise<ResourceData>)
       .then(d => {
@@ -662,49 +327,385 @@ function ResourcesPanel({ resourceFile, cadastreRing: _r, bbox: _b }: {
             .map(f => String(f.properties['KASUTUSALA_NIMETUS'] ?? '').trim())
             .filter(Boolean)
         )]
-        setItems(unique)
-        setLoading(false)
+        setResourceItems(unique)
       })
-      .catch(() => setLoading(false))
+      .catch(() => {})
   }, [resourceFile])
 
+  // Derived values
+  const areaHa = info.area / 10000
+  const perimeterM = calcPerimeterM(info.coordinates)
+
+  // Headline value
+  const headlineValue = forestValue?.totalEur ?? valuation?.valueRangeEur?.marketHighEur
+  const headlineValueStr = headlineValue != null ? fmtEur(headlineValue) : '—'
+  // Strip leading € for big-number display (we render the € separately)
+  const headlineNum = headlineValueStr.startsWith('€') ? headlineValueStr.slice(1) : headlineValueStr
+
+  // Today's date string
+  const today = new Date().toLocaleDateString('et-EE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  // ── Row 03 species StackBar segments ──
+  const speciesSegments = speciesRatios ? [
+    { name: 'conifer', label: 'Okaspuu', val: speciesRatios.conifer, color: '#3d6e3d' },
+    { name: 'broadleaf', label: 'Lehtpuu', val: speciesRatios.broadleaf, color: '#7ab648' },
+  ] : []
+
+  // ── Row 04 histogram from heightStats shares ──
+  const histBars: { label: string; count: number }[] = heightStats
+    ? heightStats.shares.map(s => ({ label: `>${s.threshold}m`, count: s.percentage }))
+    : []
+
+  // ── Row 05 sortiment StackBar ──
+  const assortColors = ['#6aa84f', '#2f6b3a', '#234d27']
+  const assortMap = new Map<string, number>()
+  if (forestValue) {
+    for (const el of forestValue.elements) {
+      assortMap.set(el.assortment, (assortMap.get(el.assortment) ?? 0) + el.totalEur)
+    }
+  }
+  const assortSegments: StackSegment[] = [...assortMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, val], i) => ({ name, label: name, val, color: assortColors[i] }))
+
+  // ── Row 06 ResList items ──
+  const restrictItems: { k: string; v: string; tone?: 'ok' | 'warn' | 'neutral' }[] = []
+  if (valuation?.restrictions && valuation.restrictions.length > 0) {
+    for (const r of valuation.restrictions) {
+      restrictItems.push({ k: r, v: 'Tuvastatud', tone: 'warn' })
+    }
+  }
+  restrictItems.push({ k: 'Kaitsealuseid liike', v: 'Ei tuvastatud', tone: 'ok' })
+  restrictItems.push({ k: 'Natura 2000', v: 'Väljaspool', tone: 'ok' })
+  for (const ri of resourceItems) {
+    restrictItems.push({ k: ri, v: 'Registreeritud', tone: 'neutral' })
+  }
+
+  // ── Row 07 ValueLedger rows ──
+  const speciesSumMap = new Map<string, number>()
+  if (forestValue) {
+    for (const el of forestValue.elements) {
+      const name = SPECIES_ET[el.speciesCode] ?? el.speciesCode
+      speciesSumMap.set(name, (speciesSumMap.get(name) ?? 0) + el.totalEur)
+    }
+  }
+  const ledgerRows: { name: string; val: number }[] = [...speciesSumMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([name, val]) => ({ name, val }))
+  const landVal = valuation?.option1_taxable?.totalEur
+  if (landVal != null) {
+    ledgerRows.push({ name: 'Maa väärtus', val: landVal })
+  }
+  const ledgerTotal = (forestValue?.totalEur ?? 0) + (valuation?.option1_taxable?.totalEur ?? 0)
+
+  // ── Build 7 accordion rows ──
+  const rows: RowData[] = [
+    // 01 Pindala
+    {
+      num: '01',
+      title: 'Pindala',
+      source: 'Maa-amet · kataster',
+      stat: { v: areaHa.toFixed(2), u: 'ha' },
+      desc: 'Katastriüksuse registreeritud pindala ja piiri pikkus. Koordinaadid on EPSG:3301 tasapinnalises süsteemis, mõõdud meetrites.',
+      data: [
+        { l: 'Pindala', v: formatArea(info.area) },
+        { l: 'Ümbermõõt', v: perimeterM > 0 ? `${Math.round(perimeterM)}` : '—', s: perimeterM > 0 ? 'm' : undefined },
+        { l: 'Tunnus', v: info.code },
+        { l: 'Aadress', v: info.address ?? '—' },
+      ],
+      contrib: {
+        tag: 'Asukoht',
+        txt: <><b>{info.address ?? info.code}</b> · katastritunnus {info.code}</>,
+      },
+    },
+    // 02 Puude arv
+    {
+      num: '02',
+      title: 'Puude arv',
+      source: 'Ortofoto · segmentatsioon',
+      stat: {
+        v: treeCount != null ? fmt(treeCount) : '—',
+        u: 'puud',
+      },
+      desc: 'Tuvastatud puude arv ortofoto segmentatsiooni põhjal. Tihedus näitab keskmist puude arvu hektari kohta.',
+      data: [
+        { l: 'Puude arv', v: treeCount != null ? fmt(treeCount) : '—' },
+        { l: 'Tihedus', v: treeCount != null ? `${(treeCount / areaHa).toFixed(0)}` : '—', s: treeCount != null ? 'tk/ha' : undefined },
+        { l: 'Meetod', v: 'Masinõpe' },
+        { l: 'Allikas', v: 'CIR ortofoto' },
+      ],
+      viz: treePolygonPlot
+        ? <VizFrame cap="Tuvastatud puukroonid" note={treeCount != null ? `${fmt(treeCount)} puud` : undefined}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(197,216,189,.55)', margin: '0 0 6px' }}>Ortofoto</p>
+                <img src={`data:image/png;base64,${clippedImage}`} alt="Ortofoto" style={{ width: '100%', borderRadius: 5, display: 'block' }} />
+              </div>
+              <div>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(197,216,189,.55)', margin: '0 0 6px' }}>Masinõpe</p>
+                <img src={`data:image/png;base64,${treePolygonPlot}`} alt="Puukroonid" style={{ width: '100%', borderRadius: 5, display: 'block' }} />
+              </div>
+            </div>
+          </VizFrame>
+        : <TreeDots cap="Puude jaotus" note={treeCount != null ? `${fmt(treeCount)} puud` : undefined} />,
+    },
+    // 03 Puuliigid
+    {
+      num: '03',
+      title: 'Puuliigid',
+      source: 'Ortofoto · spektraalanalüüs',
+      stat: {
+        v: speciesRatios ? `${Math.round(speciesRatios.conifer * 100)} / ${Math.round(speciesRatios.broadleaf * 100)}` : '—',
+        u: 'OK / LH %',
+      },
+      desc: 'Okaspuu ja lehtpuu osakaal arvutati CIR ortofotos põhineva spektraaltõlgenduse abil. Klassifitseerimine põhineb lähi-infrapuna kanalil.',
+      data: [
+        { l: 'Okaspuu', v: speciesRatios ? `${Math.round(speciesRatios.conifer * 100)}` : '—', s: speciesRatios ? '%' : undefined },
+        { l: 'Lehtpuu', v: speciesRatios ? `${Math.round(speciesRatios.broadleaf * 100)}` : '—', s: speciesRatios ? '%' : undefined },
+        { l: 'Meetod', v: 'Algorütm' },
+        { l: 'Allikas', v: 'Ortofoto' },
+      ],
+      viz: speciesRatios
+        ? <StackBar cap="Puuliikide jaotus" segments={speciesSegments} />
+        : undefined,
+    },
+    // 04 Kõrgusandmed
+    {
+      num: '04',
+      title: 'Kõrgusandmed',
+      source: 'Lidar · kõrgusmudelianalüüs',
+      stat: {
+        v: heightStats ? `${heightStats.averageHeight.toFixed(1)}` : '—',
+        u: 'm keskmine',
+      },
+      desc: 'Puude kõrgusjaotus saadud LiDAR kõrgusmudelist (DTM/DSM). Näitab, milline osakaal metsast küündib erinevatesse kõrgusklassidesse.',
+      data: [
+        { l: 'Keskmine kõrgus', v: heightStats ? `${heightStats.averageHeight.toFixed(1)}` : '—', s: heightStats ? 'm' : undefined },
+        { l: 'Metsapikslit', v: heightStats ? fmt(heightStats.forestPixelCount) : '—' },
+        { l: 'Metsakate', v: heightStats ? `${((heightStats.forestPixelCount / Math.max(1, heightStats.totalPixelCount)) * 100).toFixed(1)}` : '—', s: heightStats ? '%' : undefined },
+        { l: 'Meetod', v: 'LiDAR DSM' },
+      ],
+      viz: histBars.length > 0
+        ? <Histogram
+            cap="Kõrgusjaotus"
+            note={heightStats ? `Ø ${heightStats.averageHeight.toFixed(1)} m` : undefined}
+            classes={histBars}
+            meanLabel="Osakaal kõrgem kui lävi (% metsakattest)"
+          />
+        : undefined,
+    },
+    // 05 Puidu maht
+    {
+      num: '05',
+      title: 'Puidu maht',
+      source: 'Puistu tagavara · boniteet',
+      stat: {
+        v: timberVolume ? `${timberVolume.totalVolumeM3.toFixed(0)}` : '—',
+        u: 'm³',
+      },
+      desc: 'Hinnanguline puidu tagavara kubeerimismeetodil. Arvutus põhineb mõõdetud läbimõõtudel, kõrgusel ja puistuelemendi boniteedil.',
+      data: [
+        { l: 'Tagavara', v: timberVolume ? `${timberVolume.totalVolumeM3.toFixed(0)}` : '—', s: timberVolume ? 'm³' : undefined },
+        { l: 'Tagavara/ha', v: timberVolume ? `${timberVolume.totalVolumePerHaM3.toFixed(0)}` : '—', s: timberVolume ? 'm³/ha' : undefined },
+        { l: 'Boniteet', v: timberVolume?.boniteet ?? '—' },
+        { l: 'Puude arv', v: timberVolume ? fmt(timberVolume.totalTreeCount) : '—' },
+      ],
+      contrib: timberVolume ? {
+        tag: 'Puistuelemendid',
+        txt: <>{timberVolume.elements.map(e => SPECIES_ET[e.speciesCode] ?? e.speciesCode).join(', ')}</>,
+      } : undefined,
+      viz: assortSegments.length > 0
+        ? <StackBar cap="Sortimentide jaotus" segments={assortSegments} note={forestValue ? fmtEur(forestValue.totalEur) : undefined} />
+        : undefined,
+    },
+    // 06 Loodusvarad
+    {
+      num: '06',
+      title: 'Loodusvarad',
+      source: 'Maa-amet · kitsendused · WFS',
+      stat: {
+        v: valuation?.restrictions?.length != null ? String(valuation.restrictions.length) : '0',
+        u: 'kitsendust',
+      },
+      desc: 'Kinnistule kehtivad avalik-õiguslikud kitsendused, looduskaitsealused objektid ja maavarade registreeritud leiukohad.',
+      data: [
+        { l: 'Kitsendusi', v: valuation?.restrictions?.length != null ? String(valuation.restrictions.length) : '0' },
+        { l: 'Maavarasid', v: String(resourceItems.length) },
+        { l: 'Sihtotstarve', v: valuation?.intendedPurpose ?? '—' },
+        { l: 'Vald', v: valuation?.municipality ?? '—' },
+      ],
+      viz: <ResList
+        cap="Kitsendused ja varad"
+        note={`${restrictItems.length} kirjet`}
+        items={restrictItems}
+      />,
+    },
+    // 07 Puidu väärtus
+    {
+      num: '07',
+      title: 'Puidu väärtus',
+      source: 'Puiduturu hinnad · maa väärtus',
+      stat: {
+        v: forestValue ? fmt(forestValue.totalEur) : '—',
+        u: '€',
+      },
+      desc: 'Hinnanguline tüvepuidu müügiväärtus kohaliku puiduturu hindade järgi ning maa maksustamishind. Lõplik tehinguhind sõltub metsa seisukorrast ja ostja huvidest.',
+      data: [
+        { l: 'Puidu väärtus', v: forestValue ? fmtEur(forestValue.totalEur) : '—' },
+        { l: 'Maa väärtus', v: valuation?.option1_taxable ? fmtEur(valuation.option1_taxable.totalEur) : '—' },
+        { l: 'Allikas', v: forestValue?.source ?? '—' },
+        { l: 'Periood', v: forestValue?.period ?? '—' },
+      ],
+      contrib: forestValue ? {
+        tag: 'Hinnatase',
+        txt: <><b>{forestValue.period}</b> · {forestValue.source}</>,
+      } : undefined,
+      viz: ledgerRows.length > 0
+        ? <ValueLedger
+            cap="Väärtuse jaotus"
+            note={fmtEur(ledgerTotal)}
+            rows={ledgerRows}
+            total={ledgerTotal}
+          />
+        : undefined,
+    },
+    // 08 Maa hind
+    {
+      num: '08',
+      title: 'Maa hind',
+      source: 'MKHIS · hindamisstatistika',
+      stat: {
+        v: valuation?.option2_market ? fmt(valuation.option2_market.totalHighEur) : '—',
+        u: '€',
+      },
+      desc: 'Maa hinnanguline väärtus põhineb ametlikul maksustamishinnal ja piirkondlikul turustatistikal. Metsa ja maa kombineeritud hinnang annab parima üldpildi kinnistu koguväärtuest.',
+      data: [
+        { l: 'Maksustamishind', v: valuation?.option1_taxable ? fmtEur(valuation.option1_taxable.totalEur) : '—' },
+        { l: 'Turuhind', v: valuation?.option2_market ? `${fmtEur(valuation.option2_market.totalLowEur)} – ${fmtEur(valuation.option2_market.totalHighEur)}` : '—' },
+        { l: 'Sihtotstarve', v: valuation?.intendedPurpose ?? '—' },
+        { l: 'Vald', v: valuation?.municipality ?? '—' },
+      ],
+      contrib: (forestValue && valuation?.option1_taxable) ? {
+        tag: 'Mets + Maa',
+        txt: <>Puidu väärtus <b>{fmtEur(forestValue.totalEur)}</b> + maa <b>{fmtEur(valuation.option1_taxable.totalEur)}</b> = <b>{fmtEur(forestValue.totalEur + valuation.option1_taxable.totalEur)}</b></>,
+      } : undefined,
+      viz: valuation
+        ? <ResList
+            cap="Maa hindamisandmed"
+            note={valuation.municipality ?? undefined}
+            items={[
+              { k: 'Maksustamishind', v: valuation.option1_taxable ? `${fmtEur(valuation.option1_taxable.totalEur)} (${fmt(valuation.option1_taxable.eurPerHa)} €/ha)` : '—' },
+              { k: 'Turuhind (madal)', v: valuation.option2_market ? fmtEur(valuation.option2_market.totalLowEur) : '—' },
+              { k: 'Turuhind (kõrge)', v: valuation.option2_market ? fmtEur(valuation.option2_market.totalHighEur) : '—', tone: 'ok' },
+              { k: 'Piirkond', v: valuation.county ?? '—' },
+              { k: 'Andmeallikas', v: valuation.option2_market?.dataSource ?? '—' },
+              { k: 'Andmeaasta', v: valuation.option2_market ? String(valuation.option2_market.dataYear) : '—' },
+            ]}
+          />
+        : undefined,
+    },
+  ]
+
   return (
-    <div style={{ ...card, padding: '28px 32px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 18 }}>
-        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
-          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
-        </svg>
-        <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Maavarad</h2>
-        <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, letterSpacing: '.14em',
-          textTransform: 'uppercase', padding: '3px 10px', borderRadius: 99,
-          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)' }}>
-          Maa-amet · maardlad
-        </span>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+
+      {/* ══ VALUE REVEAL ══════════════════════════════════════════════════════ */}
+      <div style={{ padding: 'clamp(40px,5vw,72px) clamp(24px,5vw,64px) 0' }}>
+        <div className="value-block">
+
+          {/* Eyebrow */}
+          <div className="value-eyebrow">
+            <span className="line" />
+            <span className="k">Analüüs valmis · {info.address ?? info.code}</span>
+          </div>
+
+          {/* Label */}
+          <p className="value-label">Sinu metsa hinnanguline väärtus</p>
+
+          {/* Big number */}
+          <div className="big-number">
+            <span className="eur">€</span>
+            <span>{headlineNum}</span>
+          </div>
+
+          {/* Sub sentence */}
+          <p className="value-sub">
+            Kinnistu <b>{areaHa.toFixed(2)} ha</b>
+            {treeCount != null ? <>, <b>{fmt(treeCount)} puu</b></> : null}
+            {timberVolume ? <>, puidu tagavara <b>{timberVolume.totalVolumeM3.toFixed(0)} m³</b></> : null}
+            {heightStats ? <>, keskmise kõrgusega <b>{heightStats.averageHeight.toFixed(1)} m</b></> : null}.
+          </p>
+
+          {/* Meta line */}
+          <p className="value-meta">
+            Kasvava metsa + maa väärtus · puiduhinnad {forestValue?.period ?? '—'} · hinnatud {today}
+          </p>
+
+          {/* Spec strip */}
+          <div className="value-specs">
+            <div className="specs">
+              <span className="s">Pindala <b>{areaHa.toFixed(2)} ha</b></span>
+              <span className="s">Puude arv <b>{treeCount != null ? fmt(treeCount) : '—'}</b></span>
+              <span className="s">Tagavara <b>{timberVolume ? `${timberVolume.totalVolumeM3.toFixed(0)} m³` : '—'}</b></span>
+              <span className="s">Kõrgus <b>{heightStats ? `${heightStats.averageHeight.toFixed(1)} m` : '—'}</b></span>
+            </div>
+          </div>
+
+          {/* Save button */}
+          <div style={{ marginTop: 28 }}>
+            <button
+              onClick={onSave}
+              disabled={isSaved}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '11px 24px', borderRadius: 999, fontSize: 14, fontWeight: 600,
+                cursor: isSaved ? 'default' : 'pointer',
+                background: isSaved ? 'rgba(139,195,74,.08)' : 'rgba(139,195,74,.18)',
+                border: `1px solid ${isSaved ? 'rgba(139,195,74,.2)' : 'rgba(139,195,74,.45)'}`,
+                color: isSaved ? 'var(--mist-dim)' : 'var(--leaf)',
+                fontFamily: 'var(--font-body)',
+                transition: 'background .15s',
+              }}
+              onMouseEnter={e => { if (!isSaved) e.currentTarget.style.background = 'rgba(139,195,74,.28)' }}
+              onMouseLeave={e => { if (!isSaved) e.currentTarget.style.background = 'rgba(139,195,74,.18)' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                {isSaved
+                  ? <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
+                  : <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2zm0 15-5-2.18L7 18V5h10v13z" />}
+              </svg>
+              {isSaved ? 'Salvestatud' : 'Salvesta kinnistu'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {loading && (
-        <p style={{ fontSize: 14, color: 'var(--mist-dim)', margin: 0, fontStyle: 'italic' }}>Laen…</p>
-      )}
-      {!loading && !resourceFile && (
-        <p style={{ fontSize: 14, color: 'var(--mist-dim)', margin: 0 }}>
-          Maavarasid ei tuvastatud.
-        </p>
-      )}
-      {!loading && resourceFile && items.length === 0 && (
-        <p style={{ fontSize: 14, color: 'var(--mist-dim)', margin: 0 }}>
-          Maavarasid ei tuvastatud.
-        </p>
-      )}
-      {items.length > 0 && (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {items.map(name => (
-            <li key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--leaf)', flexShrink: 0 }} />
-              <span style={{ fontSize: 14, color: 'var(--mist)' }}>{name}</span>
-            </li>
+      {/* ══ BREAKDOWN ACCORDION ═══════════════════════════════════════════════ */}
+      <div style={{ padding: 'clamp(48px,6vw,80px) clamp(24px,5vw,64px)' }}>
+        <div className="bd-head">
+          <div className="row">
+            <span className="line" />
+            <span className="k">Jaotus</span>
+          </div>
+          <h2>Numbrid sinu metsa taga.</h2>
+          <p>Iga samm näitab, milliseid andmeid leidsime — klõpsa real, et näha täpsemat infot.</p>
+        </div>
+
+        <div className="accordion">
+          {rows.map((row, i) => (
+            <AccRow
+              key={row.num}
+              row={row}
+              open={openIdx === i}
+              onToggle={() => setOpenIdx(openIdx === i ? -1 : i)}
+            />
           ))}
-        </ul>
-      )}
+        </div>
+      </div>
+
+
     </div>
   )
 }

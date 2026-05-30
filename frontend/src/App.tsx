@@ -575,7 +575,7 @@ export default function App() {
 
       {/* ═══════════════════════════ PROGRESS (loading / error) ════════════════ */}
       {(phase === 'loading' || phase === 'error') && steps.length > 0 && (
-        <div style={{ background: 'var(--forest-d)', padding: '40px 56px' }}>
+        <div style={{ background: 'var(--forest-d)', padding: '40px 24px', display: 'flex', justifyContent: 'center' }}>
           <ProgressSteps steps={steps} phase={phase} />
         </div>
       )}
@@ -666,7 +666,7 @@ export default function App() {
 
       {/* ═══════════════════════════ RESULTS ═══════════════════════════════════ */}
       {isDone && (
-        <div style={{ background: 'var(--forest-d)', padding: '48px 56px' }} className="animate-fadeIn">
+        <div style={{ background: 'var(--forest-d)' }} className="animate-fadeIn">
           <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} speciesRatios={speciesRatios} valuation={valuation} timberVolume={timberVolume} forestValue={forestValue} />
         </div>
       )}
