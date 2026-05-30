@@ -39,6 +39,7 @@ export interface AnalysisResult {
   originalImage: string;
   clippedImage: string;
   tifFiles: string[];
+  cirFile?: string;
   heightStats?: ForestHeightStats;
   treeCount?: number;
   treePolygonPlot?: string;
@@ -86,10 +87,9 @@ export class CadastreService {
   private async run(code: string, subject: Subject<SseEvent>): Promise<void> {
     // Step 1 – fetch cadastre
     emit(subject, 'fetching', 'Laen katastriandmeid...');
-    const cadastreRes = await axios.get<CadastreApiItem[]>(
-      `${CADASTRE_API}${encodeURIComponent(code)}`,
-      { timeout: 15000 },
-    );
+    const cadastreUrl = `${CADASTRE_API}${encodeURIComponent(code)}`;
+    const cadastreRes = await axios.get<CadastreApiItem[]>(cadastreUrl, { timeout: 15000 })
+      .catch(err => { throw new Error(`Kataster API (${cadastreUrl}): ${err.message}`); });
 
     const items = cadastreRes.data;
     if (!items?.length) throw new Error(`Katastriüksust ei leitud: ${code}`);
@@ -131,7 +131,7 @@ export class CadastreService {
     const wmsRes = await axios.get<ArrayBuffer>(wmsUrl, {
       responseType: 'arraybuffer',
       timeout: 30000,
-    });
+    }).catch(err => { throw new Error(`WMS (${wmsUrl}): ${err.message}`); });
     const wmsBuffer = Buffer.from(wmsRes.data);
 
     // Step 4 – clip WMS image to polygon
@@ -171,7 +171,14 @@ export class CadastreService {
           `Laen kaardilehte (${i + 1}/${kaardilehtIds.length}): ${id}...`,
         );
 
-        const zipUrls = await this.getZipUrls(id);
+        let zipUrls: string[];
+        try {
+          zipUrls = await this.getZipUrls(id);
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : 'tundmatu viga';
+          emit(subject, 'tif_warning', `${id}: ZIP-faile ei leitud (${reason})`);
+          continue;
+        }
         let sheetDone = false;
 
         for (let attempt = 0; attempt < zipUrls.length; attempt++) {
@@ -416,11 +423,16 @@ export class CadastreService {
         coordinates: polygon,
       };
 
+      // Save the polygon-clipped WMS CIR image to disk for species analysis
+      const cirFilename = `${safeCode}_${ts}.cir.png`;
+      await fs.promises.writeFile(path.join(OUTPUT_DIR, cirFilename), wmsClippedBuffer);
+
       const result: AnalysisResult = {
         info,
         originalImage: wmsBuffer.toString('base64'),
         clippedImage: wmsClippedBuffer.toString('base64'),
         tifFiles: tifFilenames,
+        cirFile: cirFilename,
         heightStats,
         treeCount,
         treePolygonPlot,
@@ -460,7 +472,7 @@ export class CadastreService {
       headers: { 'Content-Type': 'text/xml' },
       responseType: 'text',
       timeout: 15000,
-    });
+    }).catch(err => { throw new Error(`WFS (${KAARDILEHT_WFS}): ${err.message}`); });
 
     const matches = [...res.data.matchAll(/<[^>:]*:NR_10000[^>]*>([^<]+)<\/[^>:]*:NR_10000>/g)];
     if (!matches.length) throw new Error('Kaardilehte ei leitud katastriüksuse jaoks');

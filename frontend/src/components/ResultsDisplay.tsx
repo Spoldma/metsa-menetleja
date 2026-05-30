@@ -1,6 +1,6 @@
-import type { AnalysisResult, ForestHeightStats } from '../App'
+import type { AnalysisResult, ForestHeightStats, SpeciesRatios } from '../App'
 
-interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean }
+interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean; speciesRatios: SpeciesRatios | null }
 
 function TreeDetectionCard({ treeCount, treePolygonPlot, clippedImage }: {
   treeCount: number
@@ -65,7 +65,7 @@ const card: React.CSSProperties = {
   backdropFilter: 'blur(10px)',
 }
 
-export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
+export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios }: Props) {
   const { info, originalImage, clippedImage, tifFiles, heightStats, treeCount, treePolygonPlot } = result
 
   return (
@@ -186,6 +186,8 @@ export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
         </div>
       )}
 
+      <SpeciesCard ratios={speciesRatios} />
+
       {heightStats && <HeightStatsCard stats={heightStats} />}
     </div>
   )
@@ -254,6 +256,79 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
         textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 4 }}>{label}</p>
       <p style={{ fontSize: 14, color: 'var(--mist)', margin: 0,
         fontFamily: mono ? "'IBM Plex Mono',monospace" : 'inherit' }}>{value}</p>
+    </div>
+  )
+}
+
+const SPECIES_CLASSES = [
+  {
+    key: 'conifer' as const,
+    label: 'Okaspuu',
+    gradient: 'linear-gradient(to right, hsl(110,34%,24%), hsl(130,32%,32%), hsl(150,28%,36%))',
+  },
+  {
+    key: 'broadleaf' as const,
+    label: 'Lehtpuu',
+    gradient: 'linear-gradient(to right, hsl(65,52%,38%), hsl(82,48%,42%), hsl(100,42%,40%))',
+  },
+]
+
+function SpeciesCard({ ratios }: { ratios: SpeciesRatios | null }) {
+  const loading = ratios === null
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+            <path d="M12 3 C8 7 4 8 4 14c0 4.4 3.6 8 8 8s8-3.6 8-8c0-6-4-7-8-11zm0 14.5c-2.5 0-4.5-2-4.5-4.5 0-3.5 2-5 4.5-8 2.5 3 4.5 4.5 4.5 8 0 2.5-2 4.5-4.5 4.5z" />
+          </svg>
+          <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Puuliigid</h3>
+        </div>
+        <span style={{
+          fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
+          textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999,
+          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)',
+        }}>
+          {loading ? 'Arvutan...' : 'ortofoto algoritm'}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {SPECIES_CLASSES.map(({ key, label, gradient }) => {
+          const pct = loading ? 0 : Math.round((ratios[key]) * 1000) / 10
+          return (
+            <div key={key}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--mist)' }}>{label}</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: loading ? 'var(--mist-dim)' : 'var(--mist)', fontFamily: "'IBM Plex Mono',monospace" }}>
+                  {loading ? '—' : `${pct.toFixed(1)} %`}
+                </span>
+              </div>
+              <div style={{ borderRadius: 99, background: 'rgba(10,22,11,.6)', height: 14, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 99,
+                  width: loading ? '0%' : `${pct}%`,
+                  background: gradient,
+                  transition: 'width .8s cubic-bezier(.4,0,.2,1)',
+                }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {!loading && ratios.pixelCount > 0 && (
+        <div style={{ marginTop: 24, borderRadius: 99, height: 8, overflow: 'hidden', display: 'flex', gap: 2 }}>
+          {SPECIES_CLASSES.map(({ key, gradient }) => (
+            <div key={key} style={{
+              flex: ratios[key],
+              background: gradient,
+              minWidth: ratios[key] > 0 ? 4 : 0,
+              transition: 'flex .8s cubic-bezier(.4,0,.2,1)',
+            }} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

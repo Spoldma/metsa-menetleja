@@ -10,13 +10,14 @@ exports.CadastreModule = void 0;
 const common_1 = require("@nestjs/common");
 const cadastre_controller_1 = require("./cadastre.controller");
 const cadastre_service_1 = require("./cadastre.service");
+const species_service_1 = require("./species.service");
 let CadastreModule = class CadastreModule {
 };
 exports.CadastreModule = CadastreModule;
 exports.CadastreModule = CadastreModule = __decorate([
     (0, common_1.Module)({
         controllers: [cadastre_controller_1.CadastreController],
-        providers: [cadastre_service_1.CadastreService],
+        providers: [cadastre_service_1.CadastreService, species_service_1.SpeciesService],
     })
 ], CadastreModule);
 //# sourceMappingURL=cadastre.module.js.map

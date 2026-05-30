@@ -24,10 +24,18 @@ export interface AnalysisResult {
   originalImage: string
   clippedImage: string
   tifFiles: string[]
+  cirFile?: string
   heightStats?: ForestHeightStats
   treeCount?: number
   treePolygonPlot?: string
 }
+export interface SpeciesRatios {
+  conifer: number
+  broadleaf: number
+  land: number
+  pixelCount: number
+}
+
 export interface SavedParcel {
   id: string
   savedAt: string
@@ -166,6 +174,7 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [steps, setSteps] = useState<ProgressStep[]>([])
   const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [speciesRatios, setSpeciesRatios] = useState<SpeciesRatios | null>(null)
   const [error, setError] = useState('')
   const [inputVal, setInputVal] = useState('')
   const [savedParcels, setSavedParcels] = useState<SavedParcel[]>(loadSaved)
@@ -201,6 +210,7 @@ export default function App() {
     setPhase('loading')
     setSteps([])
     setResult(null)
+    setSpeciesRatios(null)
     setError('')
 
     const es = new EventSource(
@@ -216,6 +226,13 @@ export default function App() {
       })
       if (data.step === 'complete' && data.payload) {
         setResult(data.payload); setPhase('done'); es.close()
+        const speciesFile = data.payload.cirFile ?? data.payload.tifFiles?.[0]
+        if (speciesFile) {
+          fetch(`http://localhost:3001/cadastre/species/${encodeURIComponent(speciesFile)}`)
+            .then(r => r.json())
+            .then((d: SpeciesRatios) => setSpeciesRatios(d))
+            .catch(e => console.error('[species]', e))
+        }
       }
       if (data.step === 'error') {
         setError(data.message); setPhase('error'); es.close()
@@ -515,7 +532,7 @@ export default function App() {
       {/* ═══════════════════════════ RESULTS ═══════════════════════════════════ */}
       {isDone && (
         <div style={{ background: 'var(--forest-d)', padding: '48px 56px' }} className="animate-fadeIn">
-          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} />
+          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} speciesRatios={speciesRatios} />
         </div>
       )}
 
