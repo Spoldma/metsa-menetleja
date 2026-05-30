@@ -53,7 +53,7 @@ const os = __importStar(require("os"));
 const cheerio_1 = require("cheerio");
 const unzipper = __importStar(require("unzipper"));
 const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
-const WMS_BASE = 'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
+const WMS_BASE = 'https://kaart.maaamet.ee/wms/alus?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
 const GEOPORTAL_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
 const GEOPORTAL_CHM_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
@@ -78,7 +78,9 @@ let CadastreService = class CadastreService {
     }
     async run(code, subject) {
         emit(subject, 'fetching', 'Laen katastriandmeid...');
-        const cadastreRes = await axios_1.default.get(`${CADASTRE_API}${encodeURIComponent(code)}`, { timeout: 15000 });
+        const cadastreUrl = `${CADASTRE_API}${encodeURIComponent(code)}`;
+        const cadastreRes = await axios_1.default.get(cadastreUrl, { timeout: 15000 })
+            .catch(err => { throw new Error(`Kataster API (${cadastreUrl}): ${err.message}`); });
         const items = cadastreRes.data;
         if (!items?.length)
             throw new Error(`Katastriüksust ei leitud: ${code}`);
@@ -111,7 +113,7 @@ let CadastreService = class CadastreService {
         const wmsRes = await axios_1.default.get(wmsUrl, {
             responseType: 'arraybuffer',
             timeout: 30000,
-        });
+        }).catch(err => { throw new Error(`WMS (${wmsUrl}): ${err.message}`); });
         const wmsBuffer = Buffer.from(wmsRes.data);
         emit(subject, 'clipping', 'Lõikan katastriüksust...');
         const toPixelWms = (c) => [
@@ -140,7 +142,15 @@ let CadastreService = class CadastreService {
             for (let i = 0; i < kaardilehtIds.length; i++) {
                 const id = kaardilehtIds[i];
                 emit(subject, 'tif_download', `Laen kaardilehte (${i + 1}/${kaardilehtIds.length}): ${id}...`);
-                const zipUrls = await this.getZipUrls(id);
+                let zipUrls;
+                try {
+                    zipUrls = await this.getZipUrls(id);
+                }
+                catch (err) {
+                    const reason = err instanceof Error ? err.message : 'tundmatu viga';
+                    emit(subject, 'tif_warning', `${id}: ZIP-faile ei leitud (${reason})`);
+                    continue;
+                }
                 let sheetDone = false;
                 for (let attempt = 0; attempt < zipUrls.length; attempt++) {
                     const zipUrl = zipUrls[attempt];
@@ -301,11 +311,14 @@ let CadastreService = class CadastreService {
                 bbox,
                 coordinates: polygon,
             };
+            const cirFilename = `${safeCode}_${ts}.cir.png`;
+            await fs.promises.writeFile(path.join(OUTPUT_DIR, cirFilename), wmsClippedBuffer);
             const result = {
                 info,
                 originalImage: wmsBuffer.toString('base64'),
                 clippedImage: wmsClippedBuffer.toString('base64'),
                 tifFiles: tifFilenames,
+                cirFile: cirFilename,
                 heightStats,
             };
             emit(subject, 'complete', 'Analüüs valmis!', result);
@@ -341,7 +354,7 @@ let CadastreService = class CadastreService {
             headers: { 'Content-Type': 'text/xml' },
             responseType: 'text',
             timeout: 15000,
-        });
+        }).catch(err => { throw new Error(`WFS (${KAARDILEHT_WFS}): ${err.message}`); });
         const matches = [...res.data.matchAll(/<[^>:]*:NR_10000[^>]*>([^<]+)<\/[^>:]*:NR_10000>/g)];
         if (!matches.length)
             throw new Error('Kaardilehte ei leitud katastriüksuse jaoks');

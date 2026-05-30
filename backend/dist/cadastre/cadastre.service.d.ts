@@ -29,6 +29,7 @@ export interface AnalysisResult {
     originalImage: string;
     clippedImage: string;
     tifFiles: string[];
+    cirFile?: string;
     heightStats?: ForestHeightStats;
 }
 export declare class CadastreService {
