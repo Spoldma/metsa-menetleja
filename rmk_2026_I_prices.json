@@ -1,0 +1,296 @@
+{
+  "meta": {
+    "source": "RMK kestvuslepingute edukate pakkumuste protokoll nr 3-3.4/25",
+    "date": "2025-12-19",
+    "period": "2026 I",
+    "currency": "EUR",
+    "volume_unit": "m3",
+    "price_unit": "EUR/m3",
+    "methodology": {
+      "conifer_sawlog_prices": "Volume-weighted average of per-contract row-mean across diameter classes",
+      "broadleaf_sawlog_prices": "Volume-weighted average of per-contract mean across available diameter classes",
+      "pulpwood_firewood_prices": "Volume-weighted average of single-price contracts"
+    }
+  },
+  "species_prices": {
+    "MA": {
+      "name_et": "Harilik mänd",
+      "name_en": "Scots pine",
+      "primary_assortment": {
+        "sortiment": "Männipalk",
+        "category": "conifer_sawlog",
+        "weighted_avg_price_eur_m3": 102.67,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 69.39,
+          "8.0-9.9": 66.56,
+          "10.0-12.9": 74.36,
+          "13.0-17.9": 103.73,
+          "18.0-24.9": 112.27,
+          "25.0-31.9": 115.06,
+          "32.0+": 113.71
+        }
+      },
+      "secondary_assortment": {
+        "sortiment": "Männipaberipuit",
+        "category": "pulpwood",
+        "weighted_avg_price_eur_m3": 52.02
+      }
+    },
+    "KU": {
+      "name_et": "Harilik kuusk",
+      "name_en": "Norway spruce",
+      "primary_assortment": {
+        "sortiment": "Kuusepalk",
+        "category": "conifer_sawlog",
+        "weighted_avg_price_eur_m3": 98.09,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 68.66,
+          "8.0-9.9": 67.6,
+          "10.0-12.9": 74.27,
+          "13.0-17.9": 102.71,
+          "18.0-24.9": 111.09,
+          "25.0-31.9": 115.52,
+          "32.0+": 114.33
+        }
+      },
+      "secondary_assortment": {
+        "sortiment": "Kuusepaberipuit",
+        "category": "pulpwood",
+        "weighted_avg_price_eur_m3": 52.32
+      }
+    },
+    "KS": {
+      "name_et": "Arukask",
+      "name_en": "Silver birch",
+      "primary_assortment": {
+        "sortiment": "Kasevineeripakk 16+",
+        "category": "broadleaf_veneer_log",
+        "weighted_avg_price_eur_m3": 152.58,
+        "note": "Weighted average across Kasevineeripakk 12-16 and 16+ fractions"
+      },
+      "secondary_assortment": {
+        "sortiment": "Kasepaberipuit",
+        "category": "pulpwood",
+        "weighted_avg_price_eur_m3": 50.29
+      },
+      "tertiary_assortment": {
+        "sortiment": "KasespoonipakkA",
+        "category": "birch_veneer_block",
+        "weighted_avg_price_eur_m3": 273.89,
+        "note": "High-grade turning quality, diameter 25+ cm"
+      }
+    },
+    "LM": {
+      "name_et": "Sanglepp",
+      "name_en": "Black alder",
+      "primary_assortment": {
+        "sortiment": "Sanglepapalk",
+        "category": "broadleaf_sawlog",
+        "weighted_avg_price_eur_m3": 82.85
+      },
+      "secondary_assortment": {
+        "sortiment": "Küttepuit",
+        "category": "firewood",
+        "weighted_avg_price_eur_m3": 43.3
+      }
+    },
+    "HB": {
+      "name_et": "Haab",
+      "name_en": "Common aspen",
+      "primary_assortment": {
+        "sortiment": "Haavapalk",
+        "category": "broadleaf_sawlog",
+        "weighted_avg_price_eur_m3": 82.71
+      },
+      "secondary_assortment": {
+        "sortiment": "Haavapaberipuit",
+        "category": "pulpwood",
+        "weighted_avg_price_eur_m3": 48.01
+      }
+    },
+    "LV": {
+      "name_et": "Hall lepp",
+      "name_en": "Grey alder",
+      "primary_assortment": {
+        "sortiment": "Hall-lepapalk",
+        "category": "broadleaf_sawlog",
+        "weighted_avg_price_eur_m3": 56.72
+      },
+      "secondary_assortment": {
+        "sortiment": "Küttepuit",
+        "category": "firewood",
+        "weighted_avg_price_eur_m3": 43.3
+      }
+    }
+  },
+  "all_sortiments": {
+    "conifer_sawlogs": {
+      "Kuuse- ja männipalkM": {
+        "n_contracts": 13,
+        "total_volume_m3": 10127,
+        "weighted_avg_price_eur_m3": 75.59,
+        "min_price_eur_m3": 69.12,
+        "max_price_eur_m3": 88.0,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 75.59
+        }
+      },
+      "Kuusepalk": {
+        "n_contracts": 24,
+        "total_volume_m3": 216219,
+        "weighted_avg_price_eur_m3": 98.09,
+        "min_price_eur_m3": 65.24,
+        "max_price_eur_m3": 123.97,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 68.66,
+          "8.0-9.9": 67.6,
+          "10.0-12.9": 74.27,
+          "13.0-17.9": 102.71,
+          "18.0-24.9": 111.09,
+          "25.0-31.9": 115.52,
+          "32.0+": 114.33
+        }
+      },
+      "Kuusepost": {
+        "n_contracts": 1,
+        "total_volume_m3": 220,
+        "weighted_avg_price_eur_m3": 109.2,
+        "min_price_eur_m3": 109.2,
+        "max_price_eur_m3": 109.2,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 107.03,
+          "8.0-9.9": 111.37
+        }
+      },
+      "Männipalk": {
+        "n_contracts": 24,
+        "total_volume_m3": 200728,
+        "weighted_avg_price_eur_m3": 102.67,
+        "min_price_eur_m3": 67.86,
+        "max_price_eur_m3": 125.0,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 69.39,
+          "8.0-9.9": 66.56,
+          "10.0-12.9": 74.36,
+          "13.0-17.9": 103.73,
+          "18.0-24.9": 112.27,
+          "25.0-31.9": 115.06,
+          "32.0+": 113.71
+        }
+      },
+      "Männipost": {
+        "n_contracts": 1,
+        "total_volume_m3": 839,
+        "weighted_avg_price_eur_m3": 114.76,
+        "min_price_eur_m3": 114.76,
+        "max_price_eur_m3": 114.76,
+        "price_by_diameter_class_cm": {
+          "5.0-7.9": 112.69,
+          "8.0-9.9": 116.83
+        }
+      }
+    },
+    "broadleaf_sawlogs_and_veneer": {
+      "Haavapalk": {
+        "n_contracts": 15,
+        "total_volume_m3": 13436,
+        "weighted_avg_price_eur_m3": 82.71,
+        "min_price_eur_m3": 77.5,
+        "max_price_eur_m3": 89.94
+      },
+      "Hall-lepapalk": {
+        "n_contracts": 4,
+        "total_volume_m3": 738,
+        "weighted_avg_price_eur_m3": 56.72,
+        "min_price_eur_m3": 55.0,
+        "max_price_eur_m3": 57.41
+      },
+      "KasepalkM": {
+        "n_contracts": 4,
+        "total_volume_m3": 1129,
+        "weighted_avg_price_eur_m3": 62.31,
+        "min_price_eur_m3": 60.12,
+        "max_price_eur_m3": 73.24
+      },
+      "Kasespoonipakk": {
+        "n_contracts": 5,
+        "total_volume_m3": 4196,
+        "weighted_avg_price_eur_m3": 273.89,
+        "min_price_eur_m3": 228.98,
+        "max_price_eur_m3": 290.78
+      },
+      "Kasevineeripakk": {
+        "n_contracts": 11,
+        "total_volume_m3": 67403,
+        "weighted_avg_price_eur_m3": 152.58,
+        "min_price_eur_m3": 60.01,
+        "max_price_eur_m3": 174.35
+      },
+      "Sanglepapalk": {
+        "n_contracts": 10,
+        "total_volume_m3": 7896,
+        "weighted_avg_price_eur_m3": 82.85,
+        "min_price_eur_m3": 73.33,
+        "max_price_eur_m3": 97.27
+      }
+    },
+    "pulpwood_firewood_industrial": {
+      "Haavapaberipuit": {
+        "n_contracts": 2,
+        "total_volume_m3": 30920,
+        "weighted_avg_price_eur_m3": 48.01,
+        "min_price_eur_m3": 48.01,
+        "max_price_eur_m3": 48.1
+      },
+      "Kasepaberipuit": {
+        "n_contracts": 17,
+        "total_volume_m3": 26815,
+        "weighted_avg_price_eur_m3": 50.29,
+        "min_price_eur_m3": 50.0,
+        "max_price_eur_m3": 51.48
+      },
+      "Kuusepaberipuit": {
+        "n_contracts": 3,
+        "total_volume_m3": 23490,
+        "weighted_avg_price_eur_m3": 52.32,
+        "min_price_eur_m3": 52.18,
+        "max_price_eur_m3": 52.35
+      },
+      "Küttepuit": {
+        "n_contracts": 31,
+        "total_volume_m3": 70957,
+        "weighted_avg_price_eur_m3": 43.3,
+        "min_price_eur_m3": 43.0,
+        "max_price_eur_m3": 47.0
+      },
+      "Männipaberipuit": {
+        "n_contracts": 4,
+        "total_volume_m3": 13532,
+        "weighted_avg_price_eur_m3": 52.02,
+        "min_price_eur_m3": 52.0,
+        "max_price_eur_m3": 52.3
+      },
+      "Okaspuuküttepuit": {
+        "n_contracts": 18,
+        "total_volume_m3": 34443,
+        "weighted_avg_price_eur_m3": 43.16,
+        "min_price_eur_m3": 43.0,
+        "max_price_eur_m3": 44.24
+      },
+      "Tehnoloogiline LP": {
+        "n_contracts": 4,
+        "total_volume_m3": 41250,
+        "weighted_avg_price_eur_m3": 48.0,
+        "min_price_eur_m3": 48.0,
+        "max_price_eur_m3": 48.0
+      },
+      "Tehnoloogiline OP": {
+        "n_contracts": 7,
+        "total_volume_m3": 50429,
+        "weighted_avg_price_eur_m3": 48.0,
+        "min_price_eur_m3": 48.0,
+        "max_price_eur_m3": 48.01
+      }
+    }
+  }
+}

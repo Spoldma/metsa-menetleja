@@ -14,3 +14,4 @@ tree-detection-model/pretrained_models/
 tree-detection-model/saved_polygons/
 tree-detection-model/predictions/
 tree-detection-model/entropy_maps/
+Mullakaart_SHP/*

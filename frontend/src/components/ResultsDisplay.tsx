@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react'
-import type { AnalysisResult, ForestHeightStats, ResourceData, SpeciesRatios, ValuationResult } from '../App'
+import type { AnalysisResult, ForestHeightStats, TimberVolumeResult, TimberVolumeElement, ForestValueResult, ResourceData, SpeciesRatios, ValuationResult } from '../App'
 
-interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean; speciesRatios: SpeciesRatios | null; valuation: ValuationResult | null }
+interface Props {
+  result: AnalysisResult
+  onSave: () => void
+  isSaved: boolean
+  speciesRatios: SpeciesRatios | null; valuation: ValuationResult | null
+  timberVolume?: TimberVolumeResult | null
+  forestValue?: ForestValueResult | null
+}
 
 function TreeDetectionCard({ treeCount, treePolygonPlot, clippedImage }: {
   treeCount: number
@@ -66,7 +73,7 @@ const card: React.CSSProperties = {
   backdropFilter: 'blur(10px)',
 }
 
-export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios, valuation }: Props) {
+export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios, timberVolume, forestValue, valuation }: Props) {
   const { info, originalImage, clippedImage, tifFiles, heightStats, resourceFile, resourceCount, treeCount, treePolygonPlot } = result
 
   return (
@@ -192,8 +199,148 @@ export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios,
       <SpeciesCard ratios={speciesRatios} />
 
       {heightStats && <HeightStatsCard stats={heightStats} />}
-
+      {timberVolume && <TimberVolumeCard result={timberVolume} />}
+      {forestValue && <ForestValueCard result={forestValue} />}
       <ResourcesPanel resourceFile={resourceFile} resourceCount={resourceCount} cadastreRing={info.coordinates[0]} bbox={info.bbox} />
+    </div>
+  )
+}
+
+const SPECIES_NAMES: Record<string, string> = {
+  MA: 'Harilik mänd', KU: 'Harilik kuusk', KS: 'Arukask',
+  LM: 'Sanglepp', HB: 'Haab', LV: 'Hall lepp', TM: 'Harilik tamm',
+}
+
+function TimberVolumeCard({ result }: { result: TimberVolumeResult }) {
+  const fmt1 = (n: number) => n.toFixed(1)
+  const fmt2 = (n: number) => n.toFixed(2)
+
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
+        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+          <path d="M11 21H5a2 2 0 0 1-2-2V7l5-4h8a2 2 0 0 1 2 2v3h-2V5H9.5L6 7.78V19h5v2zm7.7-2.3-1.4-1.4L19 15.6V11h2v4.6l1.7 1.7-1.4 1.4L19.7 17l-1 .7z" />
+        </svg>
+        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Tagavara (m³)</h3>
+      </div>
+
+      {/* Summary badges */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+        <StatBadge label="Pindala" value={`${fmt2(result.areaHa)} ha`} />
+        <StatBadge label="Kogutagavara" value={`${fmt1(result.totalVolumeM3)} m³`} />
+        <StatBadge label="Tagavara/ha" value={`${fmt1(result.totalVolumePerHaM3)} m³/ha`} />
+      </div>
+
+      {/* Per-element detail table */}
+      <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
+        textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 12 }}>
+        Puistuelemendid (boniteet {result.boniteet}, {result.totalTreeCount} puud)
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {result.elements.map((el) => (
+          <TimberElementRow key={el.speciesCode} el={el} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TimberElementRow({ el }: { el: TimberVolumeElement }) {
+  const fmt1 = (n: number) => n.toFixed(1)
+  const fmt2 = (n: number) => n.toFixed(2)
+  const name = SPECIES_NAMES[el.speciesCode] ?? el.speciesCode
+
+  return (
+    <div style={{ borderRadius: 12, background: 'rgba(10,22,11,.6)', padding: '14px 18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--mist)' }}>{name}</span>
+        <span style={{ fontSize: 13, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--leaf)', fontWeight: 700 }}>
+          {fmt1(el.volumeTotalM3)} m³
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+        {[
+          ['N/ha', `${Math.round(el.nPerHa)}`],
+          ['DBH', `${fmt1(el.dbhCm)} cm`],
+          ['G', `${fmt2(el.standBasalAreaM2ha)} m²/ha`],
+          ['RSD (täius)', `${fmt2(el.rsd)}`],
+          ['G₁₀₀', `${fmt2(el.g100)} m²/ha`],
+          ['V₁₀₀', `${fmt1(el.v100)} m³/ha`],
+          ['V/ha', `${fmt1(el.volumePerHaM3)} m³/ha`],
+          ['V kokku', `${fmt1(el.volumeTotalM3)} m³`],
+        ].map(([label, value]) => (
+          <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.12em',
+              textTransform: 'uppercase', color: 'var(--mist-dim)' }}>{label}</span>
+            <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist)' }}>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const SPECIES_ET: Record<string, string> = {
+  MA: 'Harilik mänd', KU: 'Harilik kuusk', KS: 'Arukask',
+  LM: 'Sanglepp', HB: 'Haab', LV: 'Hall lepp', TM: 'Harilik tamm',
+}
+
+function ForestValueCard({ result }: { result: ForestValueResult }) {
+  const fmtEur = (n: number) =>
+    n.toLocaleString('et-EE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €'
+
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
+        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+          <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
+        </svg>
+        <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Hinnanguline väärtus</h3>
+      </div>
+
+      {/* Total value hero */}
+      <div style={{ borderRadius: 14, background: 'rgba(139,195,74,.08)',
+        border: '1px solid rgba(139,195,74,.2)', padding: '18px 24px', marginBottom: 20,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, color: 'var(--mist-dim)' }}>Kogu metsa väärtus</span>
+        <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--leaf)',
+          fontFamily: "'IBM Plex Mono',monospace" }}>
+          {fmtEur(result.totalEur)}
+        </span>
+      </div>
+
+      {/* Per-species rows */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {result.elements.map((el) => (
+          <div key={el.speciesCode} style={{ borderRadius: 10, background: 'rgba(10,22,11,.6)',
+            padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--mist)' }}>
+                {SPECIES_ET[el.speciesCode] ?? el.speciesCode}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--mist-dim)', marginLeft: 8,
+                fontFamily: "'IBM Plex Mono',monospace" }}>
+                {el.assortment}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace",
+                color: 'var(--mist-dim)', textAlign: 'right' }}>
+                {el.volumeM3.toFixed(1)} m³ × {el.pricePerM3.toFixed(2)} €/m³
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace",
+                color: 'var(--leaf)', minWidth: 90, textAlign: 'right' }}>
+                {fmtEur(el.totalEur)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", color: 'var(--mist-dim)',
+        marginTop: 14, marginBottom: 0, letterSpacing: '.05em' }}>
+        Allikas: {result.period} · {result.source}
+      </p>
     </div>
   )
 }
@@ -209,10 +356,9 @@ function HeightStatsCard({ stats }: { stats: ForestHeightStats }) {
         </svg>
         <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Metsa kõrgus</h3>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 24 }}>
         <StatBadge label="Keskmine kõrgus" value={`${stats.averageHeight.toFixed(1)} m`} />
         <StatBadge label="Metsa osakaal" value={`${forestPct.toFixed(1)} %`} subtitle="(kõrgem kui 4 m)" />
-        <StatBadge label="Metsakattega pikslit" value={stats.forestPixelCount.toLocaleString()} subtitle={`/ ${stats.totalPixelCount.toLocaleString()}`} />
       </div>
       <p style={{ fontSize: 11, fontFamily: "'IBM Plex Mono',monospace", letterSpacing: '.18em',
         textTransform: 'uppercase', color: 'var(--mist-dim)', marginBottom: 14 }}>

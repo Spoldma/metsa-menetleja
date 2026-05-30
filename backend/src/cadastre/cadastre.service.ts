@@ -7,6 +7,12 @@ import * as path from 'path';
 import * as os from 'os';
 import { load as cheerioLoad } from 'cheerio';
 import * as unzipper from 'unzipper';
+import * as shapefile from 'shapefile';
+import type * as GeoJSON from 'geojson';
+import { calculateTimberVolume } from './timber-volume.js';
+import type { TimberVolumeResult } from './timber-volume.js';
+import { calculateForestValue } from './pricing.js';
+import type { ForestValueResult } from './pricing.js';
 
 export interface SseEvent {
   data: string;
@@ -34,6 +40,15 @@ export interface ForestHeightStats {
   shares: { threshold: number; percentage: number }[];
 }
 
+export interface SoilRecord {
+  properties: Record<string, unknown>;
+}
+
+export interface SoilData {
+  count: number;
+  records: SoilRecord[];
+}
+
 export interface ResourceFeature {
   type: string;
   geometry: { type: string; coordinates: number[][][] | number[][][][] };
@@ -52,8 +67,9 @@ export interface AnalysisResult {
   tifFiles: string[];
   cirFile?: string;
   heightStats?: ForestHeightStats;
-  resourceFile?: string;   // filename under output/resources/ — fetched separately by frontend
-  resourceCount?: number;  // 0 = no resources found
+  soilData?: SoilData;
+  resourceFile?: string;
+  resourceCount?: number;
   treeCount?: number;
   treePolygonPlot?: string;
 }
@@ -411,9 +427,17 @@ export class CadastreService {
           ? this.computeHeightStats(allHeightSamples, allTotalPixels)
           : undefined;
 
-      // Step 7 – natural resource map (non-fatal)
-      // Resources are saved to disk and served via /cadastre/resources/:file — NOT embedded in
-      // the SSE payload, because thousands of GeoJSON features would overflow JSON.stringify.
+      // Step 7 – Soil data lookup (non-fatal)
+      emit(subject, 'soil_lookup', 'Otsin mullakaardi andmeid...');
+      let soilData: SoilData | undefined;
+      try {
+        soilData = await this.lookupSoilData(ring);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'tundmatu viga';
+        emit(subject, 'tif_warning', `Mullakaardi andmed ei laadinud: ${reason}`);
+      }
+
+      // Step 8 – Natural resource map (non-fatal)
       emit(subject, 'resources', 'Laen maavaraandmeid...');
       let resourceFile: string | undefined;
       let resourceCount = 0;
@@ -433,7 +457,7 @@ export class CadastreService {
         // Resource fetch is supplementary — don't fail the whole analysis
       }
 
-      // Step 8 – tree detection (non-fatal: if the Python API is down we skip gracefully)
+      // Step 9 – Tree detection (non-fatal: if the Python API is down we skip gracefully)
       emit(subject, 'tree_detection', 'Tuvastan puid...');
       let treeCount: number | undefined;
       let treePolygonPlot: string | undefined;
@@ -470,6 +494,7 @@ export class CadastreService {
         tifFiles: tifFilenames,
         cirFile: cirFilename,
         heightStats,
+        soilData,
         resourceFile,
         resourceCount,
         treeCount,
@@ -947,6 +972,109 @@ export class CadastreService {
           : 0,
     }));
     return { averageHeight, forestPixelCount, totalPixelCount: totalPixels, shares };
+  }
+
+  private async lookupSoilData(ring: number[][]): Promise<SoilData> {
+    const xs = ring.map((c) => c[0]);
+    const ys = ring.map((c) => c[1]);
+    const parcelMinX = Math.min(...xs);
+    const parcelMaxX = Math.max(...xs);
+    const parcelMinY = Math.min(...ys);
+    const parcelMaxY = Math.max(...ys);
+
+    const shpDir = path.join(process.cwd(), '..', 'Mullakaart_SHP');
+    const entries = await fs.promises.readdir(shpDir);
+    const shpFile = entries.find((e) => e.toLowerCase().endsWith('.shp'));
+    if (!shpFile) throw new Error(`No .shp file found in ${shpDir}`);
+    const shpPath = path.join(shpDir, shpFile);
+
+    const source = await shapefile.open(shpPath);
+    const records: SoilRecord[] = [];
+
+    while (true) {
+      const { done, value: feature } = await source.read();
+      if (done) break;
+      if (!feature.geometry) continue;
+
+      const geom = feature.geometry;
+      const rings: number[][][] = [];
+
+      if (geom.type === 'Polygon') {
+        rings.push(...(geom as GeoJSON.Polygon).coordinates);
+      } else if (geom.type === 'MultiPolygon') {
+        for (const poly of (geom as GeoJSON.MultiPolygon).coordinates) {
+          rings.push(...poly);
+        }
+      } else {
+        continue;
+      }
+
+      // Fast bbox pre-filter
+      let featMinX = Infinity, featMaxX = -Infinity;
+      let featMinY = Infinity, featMaxY = -Infinity;
+      for (const r of rings) {
+        for (const c of r) {
+          if (c[0] < featMinX) featMinX = c[0];
+          if (c[0] > featMaxX) featMaxX = c[0];
+          if (c[1] < featMinY) featMinY = c[1];
+          if (c[1] > featMaxY) featMaxY = c[1];
+        }
+      }
+      if (featMaxX < parcelMinX || featMinX > parcelMaxX ||
+          featMaxY < parcelMinY || featMinY > parcelMaxY) {
+        continue;
+      }
+
+      // Pass 1: any parcel vertex inside any soil ring
+      let intersects = false;
+      outer1: for (const soilRing of rings) {
+        for (const pt of ring) {
+          if (this.pointInPolygon(pt[0], pt[1], soilRing)) {
+            intersects = true;
+            break outer1;
+          }
+        }
+      }
+
+      // Pass 2: any soil ring vertex inside the parcel ring
+      if (!intersects) {
+        outer2: for (const soilRing of rings) {
+          for (const pt of soilRing) {
+            if (this.pointInPolygon(pt[0], pt[1], ring)) {
+              intersects = true;
+              break outer2;
+            }
+          }
+        }
+      }
+
+      if (intersects) {
+        records.push({ properties: (feature.properties ?? {}) as Record<string, unknown> });
+      }
+    }
+
+    return { count: records.length, records };
+  }
+
+  computeTimberValue(params: {
+    treeCount: number;
+    coniferRatio: number;
+    areaM2: number;
+    averageHeightM: number;
+  }): { timberVolume: TimberVolumeResult; forestValue: ForestValueResult } {
+    const coniferCount = Math.round(params.treeCount * params.coniferRatio);
+    const deciduousCount = params.treeCount - coniferCount;
+    const timberVolume = calculateTimberVolume({
+      areaM2: params.areaM2,
+      averageHeightM: params.averageHeightM,
+      boniteet: 'III',
+      elements: [
+        { speciesCode: 'KU', count: coniferCount },
+        { speciesCode: 'KS', count: deciduousCount },
+      ],
+    });
+    const forestValue = calculateForestValue(timberVolume);
+    return { timberVolume, forestValue };
   }
 
 }

@@ -28,6 +28,7 @@
     "geotiff": "^3.0.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "shapefile": "^0.6.6",
     "sharp": "^0.34.5",
     "unzipper": "^0.12.3"
   },
@@ -40,6 +41,7 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
+    "@types/shapefile": "^0.6.4",
     "@types/supertest": "^7.0.0",
     "@types/unzipper": "^0.10.11",
     "eslint": "^9.18.0",

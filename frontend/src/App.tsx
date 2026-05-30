@@ -19,11 +19,60 @@ export interface ForestHeightStats {
   shares: { threshold: number; percentage: number }[]
 }
 
+export interface SoilRecord {
+  properties: Record<string, unknown>
+}
+
+export interface SoilData {
+  count: number
+  records: SoilRecord[]
+}
+
+export interface TimberVolumeElement {
+  speciesCode: string
+  count: number
+  nPerHa: number
+  dbhCm: number
+  basalAreaPerTreeM2: number
+  standBasalAreaM2ha: number
+  g100: number
+  v100: number
+  rsd: number
+  volumePerHaM3: number
+  volumeTotalM3: number
+}
+
+export interface TimberVolumeResult {
+  areaHa: number
+  averageHeightM: number
+  boniteet: string
+  totalTreeCount: number
+  elements: TimberVolumeElement[]
+  totalVolumePerHaM3: number
+  totalVolumeM3: number
+}
+
+export interface SpeciesPriceBreakdown {
+  speciesCode: string
+  assortment: string
+  pricePerM3: number
+  volumeM3: number
+  totalEur: number
+}
+
+export interface ForestValueResult {
+  source: string
+  period: string
+  elements: SpeciesPriceBreakdown[]
+  totalEur: number
+}
+
 export interface ResourceFeature {
   type: string
   geometry: { type: string; coordinates: number[][][] | number[][][][] }
   properties: Record<string, string | number | null>
 }
+
 export interface ResourceData {
   type: string
   features: ResourceFeature[]
@@ -35,6 +84,7 @@ export interface AnalysisResult {
   tifFiles: string[]
   cirFile?: string
   heightStats?: ForestHeightStats
+  soilData?: SoilData
   resourceFile?: string
   resourceCount?: number
   treeCount?: number
@@ -231,6 +281,8 @@ export default function App() {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [speciesRatios, setSpeciesRatios] = useState<SpeciesRatios | null>(null)
   const [valuation, setValuation] = useState<ValuationResult | null>(null)
+  const [timberVolume, setTimberVolume] = useState<TimberVolumeResult | null>(null)
+  const [forestValue, setForestValue] = useState<ForestValueResult | null>(null)
   const [error, setError] = useState('')
   const [inputVal, setInputVal] = useState('')
   const [savedParcels, setSavedParcels] = useState<SavedParcel[]>(loadSaved)
@@ -268,6 +320,8 @@ export default function App() {
     setResult(null)
     setSpeciesRatios(null)
     setValuation(null)
+    setTimberVolume(null)
+    setForestValue(null)
     setError('')
 
     const es = new EventSource(
@@ -287,7 +341,27 @@ export default function App() {
         if (speciesFile) {
           fetch(`http://localhost:3001/cadastre/species/${encodeURIComponent(speciesFile)}`)
             .then(r => r.json())
-            .then((d: SpeciesRatios) => setSpeciesRatios(d))
+            .then((d: SpeciesRatios) => {
+              setSpeciesRatios(d)
+              const tc = data.payload?.treeCount
+              const height = data.payload?.heightStats?.averageHeight
+              const area = data.payload?.info?.area
+              if (tc && height && height > 0 && area) {
+                const params = new URLSearchParams({
+                  treeCount: tc.toString(),
+                  coniferRatio: d.conifer.toString(),
+                  areaM2: area.toString(),
+                  averageHeightM: height.toString(),
+                })
+                fetch(`http://localhost:3001/cadastre/timber-value?${params}`)
+                  .then(r => r.json())
+                  .then((tv: { timberVolume: TimberVolumeResult; forestValue: ForestValueResult }) => {
+                    setTimberVolume(tv.timberVolume)
+                    setForestValue(tv.forestValue)
+                  })
+                  .catch(e => console.error('[timber-value]', e))
+              }
+            })
             .catch(e => console.error('[species]', e))
         }
         fetch(`http://localhost:3001/valuation/estimate?code=${encodeURIComponent(trimmed)}`)
@@ -593,7 +667,7 @@ export default function App() {
       {/* ═══════════════════════════ RESULTS ═══════════════════════════════════ */}
       {isDone && (
         <div style={{ background: 'var(--forest-d)', padding: '48px 56px' }} className="animate-fadeIn">
-          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} speciesRatios={speciesRatios} valuation={valuation} />
+          <ResultsDisplay result={result} onSave={handleSave} isSaved={isAlreadySaved} speciesRatios={speciesRatios} valuation={valuation} timberVolume={timberVolume} forestValue={forestValue} />
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res, Sse } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res, Sse, ParseFloatPipe, ParseIntPipe } from '@nestjs/common';
 import type { Response } from 'express';
 import * as path from 'path';
 import { Observable } from 'rxjs';
@@ -34,5 +34,15 @@ export class CadastreController {
   @Get('species/:filename')
   analyzeSpecies(@Param('filename') filename: string) {
     return this.speciesService.analyzeSpecies(filename);
+  }
+
+  @Get('timber-value')
+  getTimberValue(
+    @Query('treeCount', ParseIntPipe) treeCount: number,
+    @Query('coniferRatio', ParseFloatPipe) coniferRatio: number,
+    @Query('areaM2', ParseFloatPipe) areaM2: number,
+    @Query('averageHeightM', ParseFloatPipe) averageHeightM: number,
+  ) {
+    return this.cadastreService.computeTimberValue({ treeCount, coniferRatio, areaM2, averageHeightM });
   }
 }
