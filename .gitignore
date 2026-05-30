@@ -7,3 +7,8 @@ node_modules/*
 backend/dist/*
 frontend/dist/*
 tree_detection.ipynb
+tree-detection-model/.venv/
+tree-detection-model/pretrained_models/
+tree-detection-model/saved_polygons/
+tree-detection-model/predictions/
+tree-detection-model/entropy_maps/

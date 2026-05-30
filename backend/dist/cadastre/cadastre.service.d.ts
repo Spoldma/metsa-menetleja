@@ -30,6 +30,8 @@ export interface AnalysisResult {
     clippedImage: string;
     tifFiles: string[];
     heightStats?: ForestHeightStats;
+    treeCount?: number;
+    treePolygonPlot?: string;
 }
 export declare class CadastreService {
     analyze(code: string): Observable<SseEvent>;
@@ -45,5 +47,6 @@ export declare class CadastreService {
     private readGeoTiffTransform;
     private extractChmHeights;
     private pointInPolygon;
+    private callTreeDetectionApi;
     private computeHeightStats;
 }

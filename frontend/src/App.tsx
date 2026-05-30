@@ -25,6 +25,8 @@ export interface AnalysisResult {
   clippedImage: string
   tifFiles: string[]
   heightStats?: ForestHeightStats
+  treeCount?: number
+  treePolygonPlot?: string
 }
 export interface SavedParcel {
   id: string

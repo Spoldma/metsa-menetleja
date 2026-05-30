@@ -53,7 +53,7 @@ const os = __importStar(require("os"));
 const cheerio_1 = require("cheerio");
 const unzipper = __importStar(require("unzipper"));
 const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
-const WMS_BASE = 'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
+const WMS_BASE = 'https://kaart.maaamet.ee/wms/alus?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
 const GEOPORTAL_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
 const GEOPORTAL_CHM_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
@@ -294,6 +294,20 @@ let CadastreService = class CadastreService {
             const heightStats = allHeightSamples.length > 0
                 ? this.computeHeightStats(allHeightSamples, allTotalPixels)
                 : undefined;
+            emit(subject, 'tree_detection', 'Tuvastan puid...');
+            let treeCount;
+            let treePolygonPlot;
+            if (tifFilenames.length > 0) {
+                const firstTif = tifFilenames[0];
+                const detection = await this.callTreeDetectionApi(path.join(OUTPUT_DIR, firstTif), firstTif);
+                if (detection) {
+                    treeCount = detection.treeCount;
+                    treePolygonPlot = detection.treePolygonPlot;
+                }
+                else {
+                    emit(subject, 'tif_warning', 'Puude tuvastus ebaõnnestus (API pole saadaval)');
+                }
+            }
             const info = {
                 code,
                 address: item.address?.shortAddress ?? '',
@@ -307,6 +321,8 @@ let CadastreService = class CadastreService {
                 clippedImage: wmsClippedBuffer.toString('base64'),
                 tifFiles: tifFilenames,
                 heightStats,
+                treeCount,
+                treePolygonPlot,
             };
             emit(subject, 'complete', 'Analüüs valmis!', result);
             subject.complete();
@@ -633,6 +649,23 @@ let CadastreService = class CadastreService {
                 inside = !inside;
         }
         return inside;
+    }
+    async callTreeDetectionApi(tifPath, filename) {
+        try {
+            const fileBuffer = await fs.promises.readFile(tifPath);
+            const blob = new Blob([fileBuffer], { type: 'image/tiff' });
+            const formData = new FormData();
+            formData.append('file', blob, filename);
+            const res = await axios_1.default.post('http://localhost:8000/detect', formData, { timeout: 300_000 });
+            if (res.data.plot == null)
+                return null;
+            return { treeCount: res.data.tree_count, treePolygonPlot: res.data.plot };
+        }
+        catch (err) {
+            const reason = err instanceof Error ? err.message : 'unknown';
+            console.warn(`Tree detection API unavailable: ${reason}`);
+            return null;
+        }
     }
     computeHeightStats(samples, totalPixels) {
         const forestPixelCount = samples.length;
