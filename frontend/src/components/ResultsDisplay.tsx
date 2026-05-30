@@ -55,6 +55,7 @@ type RowData = {
   data: { l: string; v: string; s?: string }[]
   contrib?: { tag: string; txt: ReactNode; neg?: boolean }
   viz?: ReactNode
+  wideViz?: ReactNode
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -302,6 +303,10 @@ function AccRow({ row, open, onToggle }: { row: RowData; open: boolean; onToggle
             {/* Right column — viz */}
             {row.viz && <div>{row.viz}</div>}
           </div>
+          {/* Full-width viz — spans the whole panel below the grid */}
+          {row.wideViz && (
+            <div style={{ padding: '0 6px 36px 56px' }}>{row.wideViz}</div>
+          )}
         </div>
       )}
     </div>
@@ -436,20 +441,32 @@ export default function ResultsDisplay({ result, onSave, isSaved, speciesRatios,
         { l: 'Meetod', v: 'Masinõpe' },
         { l: 'Allikas', v: 'CIR ortofoto' },
       ],
-      viz: treePolygonPlot
-        ? <VizFrame cap="Tuvastatud puukroonid" note={treeCount != null ? `${fmt(treeCount)} puud` : undefined}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      viz: !treePolygonPlot
+        ? <TreeDots cap="Puude jaotus" note={treeCount != null ? `${fmt(treeCount)} puud` : undefined} />
+        : undefined,
+      wideViz: treePolygonPlot
+        ? <div style={{
+            border: '1px solid rgba(139,195,74,.16)',
+            borderRadius: 12,
+            background: 'rgba(10,22,11,.55)',
+            padding: '16px 20px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--mist-dim)' }}>Tuvastatud puukroonid</span>
+              {treeCount != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--leaf)' }}>{fmt(treeCount)} puud</span>}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(197,216,189,.55)', margin: '0 0 6px' }}>Ortofoto</p>
-                <img src={`data:image/png;base64,${clippedImage}`} alt="Ortofoto" style={{ width: '100%', borderRadius: 5, display: 'block' }} />
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(197,216,189,.5)', margin: '0 0 8px' }}>Ortofoto</p>
+                <img src={`data:image/png;base64,${clippedImage}`} alt="Ortofoto" style={{ width: '100%', borderRadius: 7, display: 'block', maxHeight: 420, objectFit: 'contain', background: 'rgba(0,0,0,.3)' }} />
               </div>
               <div>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(197,216,189,.55)', margin: '0 0 6px' }}>Masinõpe</p>
-                <img src={`data:image/png;base64,${treePolygonPlot}`} alt="Puukroonid" style={{ width: '100%', borderRadius: 5, display: 'block' }} />
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(197,216,189,.5)', margin: '0 0 8px' }}>Masinõpe</p>
+                <img src={`data:image/png;base64,${treePolygonPlot}`} alt="Puukroonid" style={{ width: '100%', borderRadius: 7, display: 'block', maxHeight: 420, objectFit: 'contain', background: 'rgba(0,0,0,.3)' }} />
               </div>
             </div>
-          </VizFrame>
-        : <TreeDots cap="Puude jaotus" note={treeCount != null ? `${fmt(treeCount)} puud` : undefined} />,
+          </div>
+        : undefined,
     },
     // 03 Puuliigid
     {
