@@ -24,12 +24,26 @@ export interface ForestHeightStats {
         percentage: number;
     }[];
 }
+export interface ResourceFeature {
+    type: string;
+    geometry: {
+        type: string;
+        coordinates: number[][][] | number[][][][];
+    };
+    properties: Record<string, string | number | null>;
+}
+export interface ResourceData {
+    type: string;
+    features: ResourceFeature[];
+}
 export interface AnalysisResult {
     info: CadastreInfo;
     originalImage: string;
     clippedImage: string;
     tifFiles: string[];
     heightStats?: ForestHeightStats;
+    resourceFile?: string;
+    resourceCount?: number;
 }
 export declare class CadastreService {
     analyze(code: string): Observable<SseEvent>;
@@ -41,6 +55,7 @@ export declare class CadastreService {
     private findFile;
     private parseWorldFile;
     private patchGeoTags;
+    private fetchNaturalResources;
     private getChmTifUrls;
     private readGeoTiffTransform;
     private extractChmHeights;

@@ -34,12 +34,25 @@ export interface ForestHeightStats {
   shares: { threshold: number; percentage: number }[];
 }
 
+export interface ResourceFeature {
+  type: string;
+  geometry: { type: string; coordinates: number[][][] | number[][][][] };
+  properties: Record<string, string | number | null>;
+}
+
+export interface ResourceData {
+  type: string;
+  features: ResourceFeature[];
+}
+
 export interface AnalysisResult {
   info: CadastreInfo;
   originalImage: string;
   clippedImage: string;
   tifFiles: string[];
   heightStats?: ForestHeightStats;
+  resourceFile?: string;   // filename under output/resources/ — fetched separately by frontend
+  resourceCount?: number;  // 0 = no resources found
 }
 
 interface WorldFile {
@@ -53,12 +66,13 @@ interface WorldFile {
 const CADASTRE_API =
   'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
 const WMS_BASE =
-  'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
+  'https://kaart.maaamet.ee/wms/alus?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
 const GEOPORTAL_SEARCH =
   'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
 const GEOPORTAL_CHM_SEARCH =
   'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
+const MAARDLAD_EXPORT = 'https://xgis.maaamet.ee/xgis2/export';
 const GEOPORTAL_BASE = 'https://geoportaal.maaamet.ee';
 const MAX_IMG_PX = 800;
 const PADDING_RATIO = 0.05;
@@ -388,6 +402,28 @@ export class CadastreService {
           ? this.computeHeightStats(allHeightSamples, allTotalPixels)
           : undefined;
 
+      // Step 7 – natural resource map (non-fatal)
+      // Resources are saved to disk and served via /cadastre/resources/:file — NOT embedded in
+      // the SSE payload, because thousands of GeoJSON features would overflow JSON.stringify.
+      emit(subject, 'resources', 'Laen maavaraandmeid...');
+      let resourceFile: string | undefined;
+      let resourceCount = 0;
+      try {
+        const resources = await this.fetchNaturalResources(bbox);
+        if (resources) {
+          resourceCount = resources.features.length;
+          const resourcesDir = path.join(OUTPUT_DIR, 'resources');
+          await fs.promises.mkdir(resourcesDir, { recursive: true });
+          resourceFile = `${safeCode}_${ts}.geojson`;
+          await fs.promises.writeFile(
+            path.join(resourcesDir, resourceFile),
+            JSON.stringify(resources, null, 2),
+          );
+        }
+      } catch {
+        // Resource fetch is supplementary — don't fail the whole analysis
+      }
+
       const info: CadastreInfo = {
         code,
         address: item.address?.shortAddress ?? '',
@@ -402,6 +438,9 @@ export class CadastreService {
         clippedImage: wmsClippedBuffer.toString('base64'),
         tifFiles: tifFilenames,
         heightStats,
+        // Send only metadata; frontend fetches the full GeoJSON via HTTP
+        resourceFile,
+        resourceCount,
       };
 
       emit(subject, 'complete', 'Analüüs valmis!', result);
@@ -639,6 +678,61 @@ export class CadastreService {
       filePath,
       Buffer.concat([newHdr, src.subarray(8), geoBlock, newIfd]),
     );
+  }
+
+  private async fetchNaturalResources(bbox: BBox): Promise<ResourceData | null> {
+    const posList = [
+      `${bbox.minX} ${bbox.minY}`,
+      `${bbox.maxX} ${bbox.minY}`,
+      `${bbox.maxX} ${bbox.maxY}`,
+      `${bbox.minX} ${bbox.maxY}`,
+      `${bbox.minX} ${bbox.minY}`,
+    ].join(' ');
+
+    const wfsRequest =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<GetFeature xmlns="http://www.opengis.net/wfs" service="WFS" version="1.1.0" ` +
+      `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
+      `xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd">` +
+      `<Query typeName="estonia:VWX2_MV_PLOKK" srsName="EPSG:3301" xmlns:estonia="http://www.maaamet.ee/estonia">` +
+      `<Filter xmlns="http://www.opengis.net/ogc"><Intersects><PropertyName>GEOMETRY</PropertyName>` +
+      `<Polygon xmlns="http://www.opengis.net/gml"><exterior><LinearRing>` +
+      `<posList>${posList}</posList>` +
+      `</LinearRing></exterior></Polygon></Intersects></Filter>` +
+      `</Query></GetFeature>`;
+
+    // API expects x-www-form-urlencoded with a single field "json" whose value is the JSON string
+    const formBody = new URLSearchParams();
+    formBody.append('json', JSON.stringify({
+      application: 'maardlad',
+      _fatLayer: 'mrd_varud_exp',
+      type: 'GEOJSON',
+      wfsRequest,
+    }));
+
+    const res = await axios.post(
+      MAARDLAD_EXPORT,
+      formBody.toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'Mozilla/5.0',
+        },
+        responseType: 'arraybuffer',
+        timeout: 20000,
+      },
+    );
+
+    // Unzip in memory and find the GeoJSON entry
+    const zipBuf = Buffer.from(res.data as ArrayBuffer);
+    const directory = await unzipper.Open.buffer(zipBuf);
+    const geojsonEntry = directory.files.find(f => f.path.toLowerCase().endsWith('.geojson') || f.path.toLowerCase().endsWith('.json'));
+    if (!geojsonEntry) return null;
+
+    const content = (await geojsonEntry.buffer()).toString('utf-8');
+    const data = JSON.parse(content) as ResourceData;
+    if (!data?.features?.length) return null;
+    return data;
   }
 
   // CHM files on geoportal are direct TIF downloads (no ZIP).

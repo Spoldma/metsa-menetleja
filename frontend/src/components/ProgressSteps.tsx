@@ -8,6 +8,7 @@ const STEP_ICONS: Record<string, string> = {
   tif_download: '⬇️',
   tif_warning:  '⚠️',
   chm_download: '🌲',
+  resources:    '⛏️',
   merging:      '🔗',
   clipping:     '✂️',
   complete:     '✅',

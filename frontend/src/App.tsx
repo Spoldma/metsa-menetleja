@@ -19,12 +19,23 @@ export interface ForestHeightStats {
   shares: { threshold: number; percentage: number }[]
 }
 
+export interface ResourceFeature {
+  type: string
+  geometry: { type: string; coordinates: number[][][] | number[][][][] }
+  properties: Record<string, string | number | null>
+}
+export interface ResourceData {
+  type: string
+  features: ResourceFeature[]
+}
 export interface AnalysisResult {
   info: CadastreInfo
   originalImage: string
   clippedImage: string
   tifFiles: string[]
   heightStats?: ForestHeightStats
+  resourceFile?: string   // served at /cadastre/resources/:file
+  resourceCount?: number
 }
 export interface SavedParcel {
   id: string

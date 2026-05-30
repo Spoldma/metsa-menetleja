@@ -1,4 +1,5 @@
-import type { AnalysisResult, ForestHeightStats } from '../App'
+import { useState, useEffect } from 'react'
+import type { AnalysisResult, ForestHeightStats, ResourceData } from '../App'
 
 interface Props { result: AnalysisResult; onSave: () => void; isSaved: boolean }
 
@@ -14,7 +15,7 @@ const card: React.CSSProperties = {
 }
 
 export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
-  const { info, originalImage, clippedImage, tifFiles, heightStats } = result
+  const { info, originalImage, clippedImage, tifFiles, heightStats, resourceFile, resourceCount } = result
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -126,6 +127,8 @@ export default function ResultsDisplay({ result, onSave, isSaved }: Props) {
       )}
 
       {heightStats && <HeightStatsCard stats={heightStats} />}
+
+      <ResourcesPanel resourceFile={resourceFile} resourceCount={resourceCount} cadastreRing={info.coordinates[0]} bbox={info.bbox} />
     </div>
   )
 }
@@ -217,6 +220,74 @@ function ImageCard({ title, subtitle, src, dark, checker }: {
         <img src={src} alt={title}
           style={{ maxWidth: '100%', maxHeight: 340, borderRadius: 4, display: 'block' }} />
       </div>
+    </div>
+  )
+}
+
+// ─── Resources panel — simple list of unique KASUTUSALA_NIMETUS values ───────
+function ResourcesPanel({ resourceFile, cadastreRing: _r, bbox: _b }: {
+  resourceFile?: string
+  resourceCount?: number
+  cadastreRing: number[][]
+  bbox: { minX: number; minY: number; maxX: number; maxY: number }
+}) {
+  const [items, setItems] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!resourceFile) return
+    setLoading(true)
+    fetch(`http://localhost:3001/cadastre/resources/${resourceFile}`)
+      .then(r => r.json() as Promise<ResourceData>)
+      .then(d => {
+        const unique = [...new Set(
+          d.features
+            .map(f => String(f.properties['KASUTUSALA_NIMETUS'] ?? '').trim())
+            .filter(Boolean)
+        )]
+        setItems(unique)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [resourceFile])
+
+  return (
+    <div style={{ ...card, padding: '28px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 18 }}>
+        <svg style={{ width: 18, height: 18, fill: 'var(--leaf)', flexShrink: 0 }} viewBox="0 0 24 24">
+          <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20C19 20 22 3 22 3c-1 2-8 2-13 6 2-2 5-2.5 9-2z" />
+        </svg>
+        <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--mist)', margin: 0 }}>Maavarad</h2>
+        <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, letterSpacing: '.14em',
+          textTransform: 'uppercase', padding: '3px 10px', borderRadius: 99,
+          border: '1px solid rgba(233,244,225,.18)', color: 'var(--mist-dim)' }}>
+          Maa-amet · maardlad
+        </span>
+      </div>
+
+      {loading && (
+        <p style={{ fontSize: 14, color: 'var(--mist-dim)', margin: 0, fontStyle: 'italic' }}>Laen…</p>
+      )}
+      {!loading && !resourceFile && (
+        <p style={{ fontSize: 14, color: 'var(--mist-dim)', margin: 0 }}>
+          Maavarasid ei tuvastatud.
+        </p>
+      )}
+      {!loading && resourceFile && items.length === 0 && (
+        <p style={{ fontSize: 14, color: 'var(--mist-dim)', margin: 0 }}>
+          Maavarasid ei tuvastatud.
+        </p>
+      )}
+      {items.length > 0 && (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {items.map(name => (
+            <li key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--leaf)', flexShrink: 0 }} />
+              <span style={{ fontSize: 14, color: 'var(--mist)' }}>{name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

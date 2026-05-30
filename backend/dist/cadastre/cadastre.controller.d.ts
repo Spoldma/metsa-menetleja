@@ -6,4 +6,5 @@ export declare class CadastreController {
     constructor(cadastreService: CadastreService);
     analyze(code: string): Observable<SseEvent>;
     downloadTif(filename: string, res: Response): void;
+    getResources(filename: string, res: Response): void;
 }

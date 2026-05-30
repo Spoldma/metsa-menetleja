@@ -17,8 +17,13 @@ export class CadastreController {
 
   @Get('tif/:filename')
   downloadTif(@Param('filename') filename: string, @Res() res: Response): void {
-    // Prevent path traversal
     const safe = path.basename(filename);
     res.download(path.join(OUTPUT_DIR, safe));
+  }
+
+  @Get('resources/:filename')
+  getResources(@Param('filename') filename: string, @Res() res: Response): void {
+    const safe = path.basename(filename);
+    res.sendFile(path.join(OUTPUT_DIR, 'resources', safe));
   }
 }

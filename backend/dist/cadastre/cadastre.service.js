@@ -53,10 +53,11 @@ const os = __importStar(require("os"));
 const cheerio_1 = require("cheerio");
 const unzipper = __importStar(require("unzipper"));
 const CADASTRE_API = 'https://kolvikud.kataster.ee/api/cadastre-unit/find?date=2024-02-01&code=';
-const WMS_BASE = 'https://xgis.maaamet.ee/xgis2/service/17bup8p?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
+const WMS_BASE = 'https://kaart.maaamet.ee/wms/alus?REQUEST=GetMap&SERVICE=WMS&VERSION=1.1.1&FORMAT=image%2Fjpeg&STYLES=&TRANSPARENT=TRUE&LAYERS=cir_ngr&SRS=EPSG%3A3301';
 const KAARDILEHT_WFS = 'https://xgis.maaamet.ee/xgis2/service/4mneci';
 const GEOPORTAL_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=610&andmetyyp=ortofoto_eesti_ngr';
 const GEOPORTAL_CHM_SEARCH = 'https://geoportaal.maaamet.ee/index.php?lang_id=1&plugin_act=otsing&page_id=614&andmetyyp=chm_geotiff';
+const MAARDLAD_EXPORT = 'https://xgis.maaamet.ee/xgis2/export';
 const GEOPORTAL_BASE = 'https://geoportaal.maaamet.ee';
 const MAX_IMG_PX = 800;
 const PADDING_RATIO = 0.05;
@@ -294,6 +295,21 @@ let CadastreService = class CadastreService {
             const heightStats = allHeightSamples.length > 0
                 ? this.computeHeightStats(allHeightSamples, allTotalPixels)
                 : undefined;
+            emit(subject, 'resources', 'Laen maavaraandmeid...');
+            let resourceFile;
+            let resourceCount = 0;
+            try {
+                const resources = await this.fetchNaturalResources(bbox);
+                if (resources) {
+                    resourceCount = resources.features.length;
+                    const resourcesDir = path.join(OUTPUT_DIR, 'resources');
+                    await fs.promises.mkdir(resourcesDir, { recursive: true });
+                    resourceFile = `${safeCode}_${ts}.geojson`;
+                    await fs.promises.writeFile(path.join(resourcesDir, resourceFile), JSON.stringify(resources, null, 2));
+                }
+            }
+            catch {
+            }
             const info = {
                 code,
                 address: item.address?.shortAddress ?? '',
@@ -307,6 +323,8 @@ let CadastreService = class CadastreService {
                 clippedImage: wmsClippedBuffer.toString('base64'),
                 tifFiles: tifFilenames,
                 heightStats,
+                resourceFile,
+                resourceCount,
             };
             emit(subject, 'complete', 'Analüüs valmis!', result);
             subject.complete();
@@ -502,6 +520,50 @@ let CadastreService = class CadastreService {
         const newHdr = Buffer.from(src.subarray(0, 8));
         newHdr.writeUInt32LE(newIfdOff, 4);
         await fs.promises.writeFile(filePath, Buffer.concat([newHdr, src.subarray(8), geoBlock, newIfd]));
+    }
+    async fetchNaturalResources(bbox) {
+        const posList = [
+            `${bbox.minX} ${bbox.minY}`,
+            `${bbox.maxX} ${bbox.minY}`,
+            `${bbox.maxX} ${bbox.maxY}`,
+            `${bbox.minX} ${bbox.maxY}`,
+            `${bbox.minX} ${bbox.minY}`,
+        ].join(' ');
+        const wfsRequest = `<?xml version="1.0" encoding="UTF-8"?>` +
+            `<GetFeature xmlns="http://www.opengis.net/wfs" service="WFS" version="1.1.0" ` +
+            `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
+            `xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd">` +
+            `<Query typeName="estonia:VWX2_MV_PLOKK" srsName="EPSG:3301" xmlns:estonia="http://www.maaamet.ee/estonia">` +
+            `<Filter xmlns="http://www.opengis.net/ogc"><Intersects><PropertyName>GEOMETRY</PropertyName>` +
+            `<Polygon xmlns="http://www.opengis.net/gml"><exterior><LinearRing>` +
+            `<posList>${posList}</posList>` +
+            `</LinearRing></exterior></Polygon></Intersects></Filter>` +
+            `</Query></GetFeature>`;
+        const formBody = new URLSearchParams();
+        formBody.append('json', JSON.stringify({
+            application: 'maardlad',
+            _fatLayer: 'mrd_varud_exp',
+            type: 'GEOJSON',
+            wfsRequest,
+        }));
+        const res = await axios_1.default.post(MAARDLAD_EXPORT, formBody.toString(), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0',
+            },
+            responseType: 'arraybuffer',
+            timeout: 20000,
+        });
+        const zipBuf = Buffer.from(res.data);
+        const directory = await unzipper.Open.buffer(zipBuf);
+        const geojsonEntry = directory.files.find(f => f.path.toLowerCase().endsWith('.geojson') || f.path.toLowerCase().endsWith('.json'));
+        if (!geojsonEntry)
+            return null;
+        const content = (await geojsonEntry.buffer()).toString('utf-8');
+        const data = JSON.parse(content);
+        if (!data?.features?.length)
+            return null;
+        return data;
     }
     async getChmTifUrls(kaardiruut) {
         const url = `${GEOPORTAL_CHM_SEARCH}&kaardiruut=${encodeURIComponent(kaardiruut)}&_=${Date.now()}`;

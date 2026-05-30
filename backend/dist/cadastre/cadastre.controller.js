@@ -63,6 +63,10 @@ let CadastreController = class CadastreController {
         const safe = path.basename(filename);
         res.download(path.join(OUTPUT_DIR, safe));
     }
+    getResources(filename, res) {
+        const safe = path.basename(filename);
+        res.sendFile(path.join(OUTPUT_DIR, 'resources', safe));
+    }
 };
 exports.CadastreController = CadastreController;
 __decorate([
@@ -80,6 +84,14 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], CadastreController.prototype, "downloadTif", null);
+__decorate([
+    (0, common_1.Get)('resources/:filename'),
+    __param(0, (0, common_1.Param)('filename')),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], CadastreController.prototype, "getResources", null);
 exports.CadastreController = CadastreController = __decorate([
     (0, common_1.Controller)('cadastre'),
     __metadata("design:paramtypes", [cadastre_service_1.CadastreService])
