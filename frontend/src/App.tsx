@@ -33,6 +33,7 @@ export interface SpeciesRatios {
   land: number
   pixelCount: number
 }
+
 export interface SavedParcel {
   id: string
   savedAt: string
